@@ -6,7 +6,8 @@ As an experiment I built a solver for the fun Tango puzzles on LinkedIn, e.g.:
 
 https://www.linkedin.com/games/tango/
 
-As an experiment I built a solver for the logical Tango puzzles, which place suns and moons on a grid under simple adjacency and balance rules.
+Tango puzzles, require suns and moons to be placed on a grid under simple adjacency and balance rules.
+
 99% written by AI
 
 ## Rules of Tango
