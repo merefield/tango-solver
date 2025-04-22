@@ -19,6 +19,19 @@
  #status,#buildStatus{font-weight:600;min-height:1.4rem}
   input[type="number"], select {width:4rem;font-size:2.5rem;padding:0.25rem;text-align:center}
  label.size{display:flex;align-items:center;gap:0.3rem}
+ /* Footer styling */
+ #footer {
+   position: fixed;
+   bottom: 0;
+   left: 0;
+   width: 100%;
+   background: #f0f0f0;
+   text-align: center;
+   padding: 0.5rem;
+   font-size: 0.9rem;
+ }
+ /* Ensure content isn't hidden behind footer */
+ body { padding-bottom: 3rem; }
  @media (max-width: 1000px) {
   body {
     max-width: none;
@@ -282,6 +295,10 @@ document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',
 
 // init
 drawBoard();
-</script>
+  </script>
+  <footer id="footer">
+    I'm a freelance full-stack developer and consultant, find me @
+    <a href="https://merefield.tech" target="_blank" rel="noopener">https://merefield.tech</a>
+  </footer>
 </body>
 </html>

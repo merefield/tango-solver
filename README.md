@@ -2,6 +2,10 @@
  
 ## Tango Puzzle Builder and Solver
 
+As an experiment I built a solver for the fun Tango puzzles on LinkedIn, e.g.:
+
+https://www.linkedin.com/games/tango/
+
 As an experiment I built a solver for the logical Tango puzzles, which place suns and moons on a grid under simple adjacency and balance rules.
 100% with AI; I did not write a single line of code.
 
@@ -23,3 +27,7 @@ Built with [Codex](https://github.com/openai/codex) and `o4-mini`.  I worked for
 * `o4-mini` undoing work that I had already completed successfully
 
 Definitely an interesting experience.  I know these tools can struggle with bigger codebases but single page javascript widgets like this appear conquered.
+
+## About me
+
+I'm a freelance full-stack developer, specialising in Discourse, Rails, EmberJS & AI that can work on your project.  Find me @ https://merefield.tech
