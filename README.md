@@ -1,4 +1,4 @@
- # tango-solver
+# tango-solver
  
 ## Tango Puzzle Builder and Solver
 
@@ -23,4 +23,3 @@ Built with [Codex](https://github.com/openai/codex) and `o4-mini`.  I worked for
 * `o4-mini` undoing work that I had already completed successfully
 
 Definitely an interesting experience.  I know these tools can struggle with bigger codebases but single page javascript widgets like this appear conquered.
-# tango-solver
