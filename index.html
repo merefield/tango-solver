@@ -280,8 +280,51 @@ function solveRec(assign, pos=0){ if(pos===ROWS*COLS) return true; if(assign[pos
   }
 
 // UI
-const startBtn=document.getElementById('startBtn'), statusEl=document.getElementById('status'), timerEl=document.getElementById('timer');
-startBtn.addEventListener('click', ()=>{ statusEl.textContent='Solving...'; solution=null; drawBoard(); const t0=performance.now(); setTimeout(()=>{ const res=fastSolve(); const dt=(performance.now()-t0)/1000; if(res){ solution=res; drawBoard(); statusEl.textContent='Solved'; } else { statusEl.textContent='No solution'; } timerEl.textContent=`Time: ${dt.toFixed(3)}s`; },0); });
+const startBtn = document.getElementById('startBtn'), statusEl = document.getElementById('status'), timerEl = document.getElementById('timer'), animateChk = document.getElementById('animateChk');
+startBtn.addEventListener('click', () => {
+  statusEl.textContent = 'Solving...';
+  startBtn.disabled = true;
+  solution = null;
+  drawBoard();
+  const t0 = performance.now();
+  setTimeout(() => {
+    const sol = fastSolve();
+    const dt = (performance.now() - t0) / 1000;
+    timerEl.textContent = `Time: ${dt.toFixed(3)}s`;
+    if (!sol) {
+      statusEl.textContent = 'No solution';
+      startBtn.disabled = false;
+      return;
+    }
+    if (!animateChk.checked) {
+      solution = sol;
+      drawBoard();
+      statusEl.textContent = 'Solved';
+      startBtn.disabled = false;
+      return;
+    }
+    // Animate placement of solution in empty cells
+    const total = ROWS * COLS;
+    const partial = new Array(total).fill(-1);
+    solution = partial;
+    const toAnim = [];
+    for (let pos = 0; pos < total; pos++) {
+      if (cellClues[pos] === -1) toAnim.push(pos);
+    }
+    statusEl.textContent = 'Animating...';
+    const delay = 200;
+    toAnim.forEach((pos, i) => {
+      setTimeout(() => {
+        partial[pos] = sol[pos];
+        drawBoard();
+        if (i === toAnim.length - 1) {
+          statusEl.textContent = 'Solved';
+          startBtn.disabled = false;
+        }
+      }, i * delay);
+    });
+  }, 0);
+});
 
 // clear clues
 document.getElementById('clearBtn').addEventListener('click', ()=>{ eqEdges.clear(); diffEdges.clear(); cellClues.fill(-1); solution = null; document.getElementById('buildStatus').textContent='Cleared'; drawBoard(); });
