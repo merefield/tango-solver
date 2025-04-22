@@ -20,7 +20,7 @@ As an experiment I built a solver for the logical Tango puzzles, which place sun
 
 ## How I built the tool
 
-Built with [Codex](https://github.com/openai/codex) and `o4-mini`.  I worked for about 1 hour based on code from the prior project "Zip Solver" which shares a lot of features.
+Built with [Codex](https://github.com/openai/codex) and `o4-mini`.  I worked for about 1 hour based on code from the prior project ["Zip Solver"](https://github.com/merefield/zip-solver) which shares a lot of features.
 
 ## Issues I encountered (at time of writing):
 
