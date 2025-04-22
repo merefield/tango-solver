@@ -299,7 +299,7 @@ startBtn.addEventListener('click', () => {
     if (!animateChk.checked) {
       solution = sol;
       drawBoard();
-      statusEl.textContent = 'Solved';
+      statusEl.textContent = '✅ Solved';
       startBtn.disabled = false;
       return;
     }
@@ -318,7 +318,7 @@ startBtn.addEventListener('click', () => {
         partial[pos] = sol[pos];
         drawBoard();
         if (i === toAnim.length - 1) {
-          statusEl.textContent = 'Solved';
+          statusEl.textContent = '✅ Solved';
           startBtn.disabled = false;
         }
       }, i * delay);
