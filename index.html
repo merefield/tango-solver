@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Zip Puzzle Builder and Solver</title>
+<style>
+ :root{--cell:64;--dot:20}
+ body{font-family:system-ui;font-size:1.2rem;line-height:2rem;-apple-system,Segoe UI,Roboto,sans-serif;margin:1rem auto;display:flex;flex-direction:column;gap:1rem;width:100%;max-width:500px;}
+ .surround{padding:20px;}
+ #board{background:#fff;box-shadow:0 0 0 4px #000;cursor:pointer;width:100%;height:auto;}
+ #side{display:flex;flex-direction:column;gap:1rem;}
+ .tabs{display:flex;border-bottom:2px solid #000;margin-bottom:1rem}
+ .tab-btn{flex:1;padding:0.55rem 0;text-align:center;border:1px solid #000;border-bottom:none;cursor:pointer;font-weight:600;background:#eaeaea}
+ .tab-btn.active{background:#fff}
+ .tab-content{display:none;flex-direction:column;gap:1rem}
+ .tab-content.active{display:flex}
+ button{padding:0.45rem 0.9rem;font-size:1.2rem;line-height:2rem;border:1px solid #000;border-radius:4px;background:#f0f0f0;cursor:pointer;font-weight:600}
+ button:disabled{opacity:.5;cursor:not-allowed}
+ #status,#buildStatus{font-weight:600;min-height:1.4rem}
+  input[type="number"], select {width:4rem;font-size:2.5rem;padding:0.25rem;text-align:center}
+ label.size{display:flex;align-items:center;gap:0.3rem}
+ @media (max-width: 1000px) {
+  body {
+    max-width: none;
+    font-size:2.5rem;
+    line-height:3rem;
+    button {
+      font-size: 2.5rem;
+      padding: 1rem 2rem;
+      line-height: 3rem;
+      color: black;
+    }
+    margin: 0;
+    width: 100%;
+  }
+}
+</style>
+</head>
+<body>
+  <div class="surround">
+    <canvas id="board"></canvas>
+    <div id="side">
+      <div class="tabs">
+        <div class="tab-btn active" data-tab="solveTab">Solve</div>
+        <div class="tab-btn" data-tab="buildTab">Build</div>
+      </div>
+
+      <!-- Solve -->
+      <div id="solveTab" class="tab-content active">
+        <label><input type="checkbox" id="animateChk"> Animate full search</label>
+        <button id="startBtn">Start</button>
+        <button id="abortBtn" style="display:none">Abort</button>
+        <div id="status">Idle</div>
+        <div id="cellsVisited"></div>
+        <div id="backtracks"></div>
+        <div id="timer"></div>
+      </div>
+
+      <!-- Build -->
+      <div id="buildTab" class="tab-content">
+        <div style="display:flex;gap:0.8rem;flex-wrap:wrap">
+          <label class="size">Cols
+            <select id="colsInp">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7" selected>7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+            </select>
+          </label>
+          <label class="size">Rows
+            <select id="rowsInp">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7" selected>7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+            </select>
+          </label>
+        </div>
+        <button id="clearBtn">Clear</button>
+        <div id="buildStatus">build mode ready</div>
+  </div>
+    </div>
+  </div>
+<script>
+/* Tango Puzzle Solver */
+// GRID SIZE & CANVAS
+const colsInp = document.getElementById('colsInp'), rowsInp = document.getElementById('rowsInp');
+let COLS = parseInt(colsInp.value, 10), ROWS = parseInt(rowsInp.value, 10);
+const CELL = 64;
+const canvas = document.getElementById('board'), ctx = canvas.getContext('2d');
+ctx.lineCap = 'round';
+function resizeCanvas(){ canvas.width = COLS * CELL; canvas.height = ROWS * CELL; }
+resizeCanvas();
+
+// PUZZLE STATE
+let eqEdges = new Set(), diffEdges = new Set();
+let solution = null;
+let cellClues = new Array(ROWS * COLS).fill(-1);
+
+// HELPERS
+function edgeKey(r1, c1, r2, c2){ return `${r1},${c1}|${r2},${c2}`; }
+function hasEq(r1, c1, r2, c2){ const k = edgeKey(r1,c1,r2,c2), rk = edgeKey(r2,c2,r1,c1); return eqEdges.has(k)||eqEdges.has(rk); }
+function hasDiff(r1, c1, r2, c2){ const k = edgeKey(r1,c1,r2,c2), rk = edgeKey(r2,c2,r1,c1); return diffEdges.has(k)||diffEdges.has(rk); }
+
+// DRAWING
+function drawBoard(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // draw cell clues (blank:-1, sun:1, moon:0)
+  ctx.font = `${CELL/2}px sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for(let r=0; r<ROWS; r++){
+    for(let c=0; c<COLS; c++){
+      const pos = r*COLS + c;
+      const val = cellClues[pos];
+      if(val !== -1){
+        // grey background for initial clue
+        ctx.fillStyle = '#888';
+        ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+        // draw symbol: yellow sun, white moon
+        const sym = val===1 ? '☀' : '☾';
+        ctx.fillStyle = val===1 ? 'yellow' : '#fff';
+        ctx.fillText(sym, c*CELL + CELL/2, r*CELL + CELL/2);
+      }
+    }
+  }
+  // draw solution
+  if(solution){
+    for(let r=0; r<ROWS; r++) for(let c=0; c<COLS; c++){
+      const v = solution[r*COLS + c];
+      if(v !== -1){ ctx.fillStyle = v===1 ? '#FFD700' : '#AAAAAA'; ctx.fillRect(c*CELL, r*CELL, CELL, CELL); }
+    }
+  }
+  // grid lines
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+  for(let i=0; i<=COLS; i++){ ctx.beginPath(); ctx.moveTo(i*CELL,0); ctx.lineTo(i*CELL,ROWS*CELL); ctx.stroke(); }
+  for(let j=0; j<=ROWS; j++){ ctx.beginPath(); ctx.moveTo(0,j*CELL); ctx.lineTo(COLS*CELL,j*CELL); ctx.stroke(); }
+  // clues
+  ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${CELL/2}px sans-serif`;
+  eqEdges.forEach(k=>{ const [[r1,c1],[r2,c2]] = k.split('|').map(s=>s.split(',').map(Number)); drawClue('=',r1,c1,r2,c2); });
+  diffEdges.forEach(k=>{ const [[r1,c1],[r2,c2]] = k.split('|').map(s=>s.split(',').map(Number)); drawClue('×',r1,c1,r2,c2); });
+}
+function drawClue(sym, r1, c1, r2, c2){
+  let x,y;
+  if(r1===r2){ y=(r1+0.5)*CELL; x=(Math.max(c1,c2))*CELL; }
+  else { x=(c1+0.5)*CELL; y=(Math.max(r1,r2))*CELL; }
+  ctx.fillText(sym, x, y);
+}
+
+// BUILD MODE
+canvas.addEventListener('click', e => {
+  if(!document.getElementById('buildTab').classList.contains('active')) return;
+  const rect = canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  const cellWidth=rect.width/COLS, cellHeight=rect.height/ROWS;
+  const c=Math.floor(x/cellWidth), r=Math.floor(y/(cellHeight)); if(r<0||r>=ROWS||c<0||c>=COLS) return;
+  const gx=x%cellWidth, gy=y%cellHeight, tol=cellWidth/6;
+  const L=(gx<tol), R=(cellWidth-gx)<tol, T=gy<tol, B=(cellHeight-gy)<tol;
+  if(!(L||R||T||B)){
+    const pos = r * COLS + c;
+    // cycle: blank(-1) -> sun(1) -> moon(0) -> blank
+    cellClues[pos] = cellClues[pos] === -1 ? 1 : (cellClues[pos] === 1 ? 0 : -1);
+    solution = null;
+    const status = document.getElementById('buildStatus');
+    if(cellClues[pos] === 1) status.textContent = 'Placed sun';
+    else if(cellClues[pos] === 0) status.textContent = 'Placed moon';
+    else status.textContent = 'Cleared cell';
+    drawBoard();
+    return;
+  }
+  // edge click: toggle clue = or ×
+  let r2, c2;
+  if(gx < tol && c > 0)      { r2 = r; c2 = c - 1; }
+  else if(CELL - gx < tol && c < COLS - 1) { r2 = r; c2 = c + 1; }
+  else if(gy < tol && r > 0) { r2 = r - 1; c2 = c; }
+  else if(CELL - gy < tol && r < ROWS - 1) { r2 = r + 1; c2 = c; }
+  else return;
+  const k = edgeKey(r, c, r2, c2);
+  if(hasEq(r, c, r2, c2)){
+    eqEdges.delete(k); eqEdges.delete(edgeKey(r2,c2,r,c));
+    diffEdges.add(k);
+  } else if(hasDiff(r, c, r2, c2)){
+    diffEdges.delete(k); diffEdges.delete(edgeKey(r2,c2,r,c));
+  } else {
+    eqEdges.add(k);
+  }
+  solution = null;
+  document.getElementById('buildStatus').textContent = 'Clue toggled';
+  drawBoard();
+});
+
+// SOLVER
+const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
+function valid(assign, pos, val){
+  const r = Math.floor(pos/COLS), c = pos%COLS;
+  assign[pos] = val;
+  // no more than 2 adjacent same
+  for(const [dr,dc] of [[0,1],[1,0]]){
+    let cnt = 1;
+    for(let i=1;i<=2;i++){ const nr=r+dr*i, nc=c+dc*i; if(nr<0||nr>=ROWS||nc<0||nc>=COLS) break; if(assign[nr*COLS+nc]===val) cnt++; else break; }
+    for(let i=1;i<=2;i++){ const nr=r-dr*i, nc=c-dc*i; if(nr<0||nr>=ROWS||nc<0||nc>=COLS) break; if(assign[nr*COLS+nc]===val) cnt++; else break; }
+    if(cnt>2){ assign[pos]=-1; return false; }
+  }
+  // row/col counts
+  const halfC = COLS/2, halfR = ROWS/2;
+  let cnt0=0, cnt1=0, unk=0;
+  for(let j=0;j<COLS;j++){ const v=assign[r*COLS+j]; if(v===1) cnt1++; else if(v===0) cnt0++; else unk++; }
+  if(cnt0>halfC||cnt1>halfC|| (unk===0 && cnt0!==halfC)){ assign[pos]=-1; return false; }
+  cnt0=0; cnt1=0; unk=0;
+  for(let i=0;i<ROWS;i++){ const v=assign[i*COLS+c]; if(v===1) cnt1++; else if(v===0) cnt0++; else unk++; }
+  if(cnt0>halfR||cnt1>halfR|| (unk===0 && cnt0!==halfR)){ assign[pos]=-1; return false; }
+  // clues
+  for(const [dr,dc] of dirs){ const nr=r+dr, nc=c+dc; if(nr<0||nr>=ROWS||nc<0||nc>=COLS) continue; const v2=assign[nr*COLS+nc]; if(v2===-1) continue;
+    if(hasEq(r,c,nr,nc) && v2!==val){ assign[pos]=-1; return false; }
+    if(hasDiff(r,c,nr,nc) && v2===val){ assign[pos]=-1; return false; }
+  }
+  assign[pos] = -1;
+  return true;
+}
+function solveRec(assign, pos=0){ if(pos===ROWS*COLS) return true; if(assign[pos]!==-1) return solveRec(assign,pos+1); for(let v=0;v<=1;v++){ if(valid(assign,pos,v)){ assign[pos]=v; if(solveRec(assign,pos+1)) return true; assign[pos]=-1; }} return false; }
+function fastSolve(){ const assign=new Array(ROWS*COLS).fill(-1); return solveRec(assign)?assign:null; }
+
+// UI
+const startBtn=document.getElementById('startBtn'), statusEl=document.getElementById('status'), timerEl=document.getElementById('timer');
+startBtn.addEventListener('click', ()=>{ statusEl.textContent='Solving...'; solution=null; drawBoard(); const t0=performance.now(); setTimeout(()=>{ const res=fastSolve(); const dt=(performance.now()-t0)/1000; if(res){ solution=res; drawBoard(); statusEl.textContent='Solved'; } else { statusEl.textContent='No solution'; } timerEl.textContent=`Time: ${dt.toFixed(3)}s`; },0); });
+
+// clear clues
+document.getElementById('clearBtn').addEventListener('click', ()=>{ eqEdges.clear(); diffEdges.clear(); cellClues.fill(-1); solution = null; document.getElementById('buildStatus').textContent='Cleared'; drawBoard(); });
+
+// size inputs
+colsInp.addEventListener('change', ()=>{ COLS = parseInt(colsInp.value,10); resizeCanvas(); eqEdges.clear(); diffEdges.clear(); solution = null; cellClues = new Array(ROWS * COLS).fill(-1); drawBoard(); });
+rowsInp.addEventListener('change', ()=>{ ROWS = parseInt(rowsInp.value,10); resizeCanvas(); eqEdges.clear(); diffEdges.clear(); solution = null; cellClues = new Array(ROWS * COLS).fill(-1); drawBoard(); });
+
+// tabs
+document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>{ document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); document.querySelectorAll('.tab-content').forEach(p=>p.classList.remove('active')); document.getElementById(btn.dataset.tab).classList.add('active'); drawBoard(); }));
+
+// init
+drawBoard();
+</script>
+</body>
+</html>
