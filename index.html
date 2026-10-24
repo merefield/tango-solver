@@ -19,6 +19,8 @@
  #status,#buildStatus{font-weight:600;min-height:1.4rem}
   input[type="number"], select {width:4rem;font-size:2.5rem;padding:0.25rem;text-align:center}
  label.size{display:flex;align-items:center;gap:0.3rem}
+ #strategySelect{width:100%;font:inherit;text-align:left;box-sizing:border-box}
+ #timer{display:flex;flex-wrap:wrap;column-gap:1rem}
  /* Footer styling */
  #footer {
    margin: 0 auto;
@@ -64,13 +66,17 @@
 
       <!-- Solve -->
       <div id="solveTab" class="tab-content active">
-        <label><input type="checkbox" id="animateChk"> Animate full search</label>
+        <label><input type="checkbox" id="animateChk"> Animate solution</label>
+        <label for="strategySelect">Strategy
+          <select id="strategySelect">
+            <option value="backtracking">Backtracking</option>
+            <option value="propagation">Constraint propagation + backtracking</option>
+          </select>
+        </label>
         <button id="startBtn">Start</button>
-        <button id="abortBtn" style="display:none">Abort</button>
-        <div id="status">Idle</div>
-        <div id="cellsVisited"></div>
-        <div id="backtracks"></div>
-        <div id="timer"></div>
+        <button id="clearSolutionBtn">Clear</button>
+        <div id="status" role="status">Idle</div>
+        <div id="timer" title="A step is one candidate symbol checked against the puzzle rules."></div>
       </div>
 
       <!-- Build -->
@@ -195,12 +201,11 @@ canvas.addEventListener('click', e => {
     const pos = r * COLS + c;
     // cycle: blank(-1) -> sun(1) -> moon(0) -> blank
     cellClues[pos] = cellClues[pos] === -1 ? 1 : (cellClues[pos] === 1 ? 0 : -1);
-    solution = null;
+    clearSolution();
     const status = document.getElementById('buildStatus');
     if(cellClues[pos] === 1) status.textContent = 'Placed sun';
     else if(cellClues[pos] === 0) status.textContent = 'Placed moon';
     else status.textContent = 'Cleared cell';
-    drawBoard();
     return;
   }
   // edge click: toggle clue = or ×
@@ -219,123 +224,223 @@ canvas.addEventListener('click', e => {
   } else {
     eqEdges.add(k);
   }
-  solution = null;
+  clearSolution();
   document.getElementById('buildStatus').textContent = 'Clue toggled';
-  drawBoard();
 });
 
 // SOLVER
 const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
 function valid(assign, pos, val){
-  const r = Math.floor(pos/COLS), c = pos%COLS;
+  const previous = assign[pos];
   assign[pos] = val;
-  // no more than 2 adjacent same
-  for(const [dr,dc] of [[0,1],[1,0]]){
-    let cnt = 1;
-    for(let i=1;i<=2;i++){ const nr=r+dr*i, nc=c+dc*i; if(nr<0||nr>=ROWS||nc<0||nc>=COLS) break; if(assign[nr*COLS+nc]===val) cnt++; else break; }
-    for(let i=1;i<=2;i++){ const nr=r-dr*i, nc=c-dc*i; if(nr<0||nr>=ROWS||nc<0||nc>=COLS) break; if(assign[nr*COLS+nc]===val) cnt++; else break; }
-    if(cnt>2){ assign[pos]=-1; return false; }
-  }
-  // row/col counts including manual clues
-  const halfC = COLS/2, halfR = ROWS/2;
-  let cnt0=0, cnt1=0, unk=0;
-  for(let j=0;j<COLS;j++){
-    const idx = r*COLS + j;
-    const m = cellClues[idx];
-    const vv = (m !== -1) ? m : (assign[idx] === -1 ? -1 : assign[idx]);
-    if(vv === 1) cnt1++;
-    else if(vv === 0) cnt0++;
-    else unk++;
-  }
-  if(cnt0 > halfC || cnt1 > halfC || (unk === 0 && cnt0 !== halfC)){
-    assign[pos] = -1;
-    return false;
-  }
-  cnt0 = 0; cnt1 = 0; unk = 0;
-  for(let i=0;i<ROWS;i++){
-    const idx = i*COLS + c;
-    const m = cellClues[idx];
-    const vv = (m !== -1) ? m : (assign[idx] === -1 ? -1 : assign[idx]);
-    if(vv === 1) cnt1++;
-    else if(vv === 0) cnt0++;
-    else unk++;
-  }
-  if(cnt0 > halfR || cnt1 > halfR || (unk === 0 && cnt0 !== halfR)){
-    assign[pos] = -1;
-    return false;
-  }
-  // clues
-  for(const [dr,dc] of dirs){ const nr=r+dr, nc=c+dc; if(nr<0||nr>=ROWS||nc<0||nc>=COLS) continue; const v2=assign[nr*COLS+nc]; if(v2===-1) continue;
-    if(hasEq(r,c,nr,nc) && v2!==val){ assign[pos]=-1; return false; }
-    if(hasDiff(r,c,nr,nc) && v2===val){ assign[pos]=-1; return false; }
-  }
-  assign[pos] = -1;
-  return true;
-}
-function solveRec(assign, pos=0){ if(pos===ROWS*COLS) return true; if(assign[pos]!==-1) return solveRec(assign,pos+1); for(let v=0;v<=1;v++){ if(valid(assign,pos,v)){ assign[pos]=v; if(solveRec(assign,pos+1)) return true; assign[pos]=-1; }} return false; }
-  function fastSolve(){
-    // seed manual clues into assignment
-    const total = ROWS * COLS;
-    const assign = new Array(total).fill(-1);
-    for(let i = 0; i < total; i++){
-      if(cellClues[i] !== -1) assign[i] = cellClues[i];
+  try {
+    const r = Math.floor(pos/COLS), c = pos%COLS;
+    // Reject three consecutive matching symbols through this cell.
+    for(const [dr,dc] of [[0,1],[1,0]]){
+      let cnt = 1;
+      for(const direction of [-1,1]){
+        for(let i=1;i<=2;i++){
+          const nr=r+dr*i*direction, nc=c+dc*i*direction;
+          if(nr<0||nr>=ROWS||nc<0||nc>=COLS||assign[nr*COLS+nc]!==val) break;
+          cnt++;
+        }
+      }
+      if(cnt>2) return false;
     }
-    return solveRec(assign) ? assign : null;
+    // On even-sized boards, these limits also guarantee balanced full lines.
+    for(const [length, index] of [
+      [COLS, j => r*COLS+j],
+      [ROWS, i => i*COLS+c]
+    ]){
+      let zeros=0, ones=0;
+      for(let i=0;i<length;i++){
+        if(assign[index(i)]===0) zeros++;
+        if(assign[index(i)]===1) ones++;
+      }
+      if(zeros>length/2||ones>length/2) return false;
+    }
+    for(const [dr,dc] of dirs){
+      const nr=r+dr, nc=c+dc;
+      if(nr<0||nr>=ROWS||nc<0||nc>=COLS) continue;
+      const neighbour=assign[nr*COLS+nc];
+      if(neighbour===-1) continue;
+      if(hasEq(r,c,nr,nc)&&neighbour!==val) return false;
+      if(hasDiff(r,c,nr,nc)&&neighbour===val) return false;
+    }
+    return true;
+  } finally {
+    assign[pos] = previous;
   }
+}
+
+// Count the same work for both strategies: each candidate symbol checked.
+function candidates(assign, pos, stats){
+  const values = [];
+  for(let value=0;value<=1;value++){
+    stats.steps++;
+    if(valid(assign,pos,value)) values.push(value);
+  }
+  return values;
+}
+
+function solveRec(assign, stats, pos=0){
+  if(pos===assign.length) return assign;
+  if(assign[pos]!==-1) return solveRec(assign,stats,pos+1);
+  for(let value=0;value<=1;value++){
+    stats.steps++;
+    if(!valid(assign,pos,value)) continue;
+    assign[pos]=value;
+    const result=solveRec(assign,stats,pos+1);
+    if(result) return result;
+    assign[pos]=-1;
+  }
+  return null;
+}
+
+function solveWithPropagation(assign, stats){
+  let next;
+  // Repeatedly fill cells with only one legal value before making a guess.
+  while(true){
+    let changed=false;
+    next=null;
+    for(let pos=0;pos<assign.length;pos++){
+      if(assign[pos]!==-1) continue;
+      const values=candidates(assign,pos,stats);
+      if(values.length===0) return null;
+      if(values.length===1){
+        assign[pos]=values[0];
+        changed=true;
+      } else if(next===null||values.length<next.values.length){
+        next={pos,values};
+      }
+    }
+    if(!changed) break;
+  }
+  if(next===null) return assign;
+  // Minimum remaining values; keep deductions isolated within each branch.
+  for(const value of next.values){
+    const branch=assign.slice();
+    branch[next.pos]=value;
+    const result=solveWithPropagation(branch,stats);
+    if(result) return result;
+  }
+  return null;
+}
+
+function solvePuzzle(strategy){
+  const stats={steps:0};
+  const assign=cellClues.slice();
+  // Validate supplied clues too, including already-complete boards.
+  if(ROWS%2!==0||COLS%2!==0) return {solution:null,...stats};
+  for(let pos=0;pos<assign.length;pos++){
+    if(assign[pos]!==-1&&!valid(assign,pos,assign[pos])) return {solution:null,...stats};
+  }
+  const solved=strategy==='propagation'
+    ? solveWithPropagation(assign,stats)
+    : solveRec(assign,stats);
+  return {solution:solved,...stats};
+}
 
 // UI
 const startBtn = document.getElementById('startBtn'), statusEl = document.getElementById('status'), timerEl = document.getElementById('timer'), animateChk = document.getElementById('animateChk');
-startBtn.addEventListener('click', () => {
-  statusEl.textContent = 'Solving...';
-  startBtn.disabled = true;
-  solution = null;
+const strategySelect = document.getElementById('strategySelect');
+let runId=0;
+let pendingTimers=new Set();
+function schedule(callback, delay){
+  const timer=setTimeout(()=>{
+    pendingTimers.delete(timer);
+    callback();
+  },delay);
+  pendingTimers.add(timer);
+}
+function finishSolve(){
+  statusEl.textContent='✅ Solved';
+  startBtn.disabled=false;
+  strategySelect.disabled=false;
+}
+function clearSolution(){
+  runId++;
+  pendingTimers.forEach(timer=>clearTimeout(timer));
+  pendingTimers.clear();
+  solution=null;
+  timerEl.replaceChildren();
+  statusEl.textContent='Idle';
+  startBtn.disabled=false;
+  strategySelect.disabled=false;
   drawBoard();
-  const t0 = performance.now();
-  setTimeout(() => {
-    const sol = fastSolve();
-    const dt = (performance.now() - t0) / 1000;
-    timerEl.textContent = `Time: ${dt.toFixed(3)}s`;
-    if (!sol) {
-      statusEl.textContent = 'No solution';
-      startBtn.disabled = false;
+}
+startBtn.addEventListener('click', () => {
+  clearSolution();
+  const currentRun=runId;
+  const strategy=strategySelect.value;
+  const strategyName=strategySelect.selectedOptions[0].textContent;
+  const animate=animateChk.checked;
+  statusEl.textContent='Solving...';
+  startBtn.disabled=true;
+  strategySelect.disabled=true;
+  schedule(() => {
+    if(currentRun!==runId) return;
+    const t0=performance.now();
+    const result=solvePuzzle(strategy);
+    const dt=(performance.now()-t0)/1000;
+    for(const text of [`Time: ${dt.toFixed(3)} s`, `Steps: ${result.steps}`, `Strategy: ${strategyName}`]){
+      const item=document.createElement('span');
+      item.textContent=text;
+      timerEl.append(item);
+    }
+    if(!result.solution){
+      statusEl.textContent=ROWS%2||COLS%2
+        ? 'No solution: rows and columns must both be even.'
+        : 'No solution';
+      startBtn.disabled=false;
+      strategySelect.disabled=false;
       return;
     }
-    if (!animateChk.checked) {
-      solution = sol;
+    const toAnim=[];
+    for(let pos=0;pos<cellClues.length;pos++){
+      if(cellClues[pos]===-1) toAnim.push(pos);
+    }
+    if(!animate||toAnim.length===0){
+      solution=result.solution;
       drawBoard();
-      statusEl.textContent = '✅ Solved';
-      startBtn.disabled = false;
+      finishSolve();
       return;
     }
-    // Animate placement of solution in empty cells
-    const total = ROWS * COLS;
-    const partial = new Array(total).fill(-1);
-    solution = partial;
-    const toAnim = [];
-    for (let pos = 0; pos < total; pos++) {
-      if (cellClues[pos] === -1) toAnim.push(pos);
-    }
-    statusEl.textContent = 'Animating...';
-    const delay = 200;
-    toAnim.forEach((pos, i) => {
-      setTimeout(() => {
-        partial[pos] = sol[pos];
+    solution=new Array(cellClues.length).fill(-1);
+    statusEl.textContent='Animating...';
+    toAnim.forEach((pos,i)=>{
+      schedule(()=>{
+        if(currentRun!==runId) return;
+        solution[pos]=result.solution[pos];
         drawBoard();
-        if (i === toAnim.length - 1) {
-          statusEl.textContent = '✅ Solved';
-          startBtn.disabled = false;
-        }
-      }, i * delay);
+        if(i===toAnim.length-1) finishSolve();
+      },i*200);
     });
-  }, 0);
+  },0);
 });
 
-// clear clues
-document.getElementById('clearBtn').addEventListener('click', ()=>{ eqEdges.clear(); diffEdges.clear(); cellClues.fill(-1); solution = null; document.getElementById('buildStatus').textContent='Cleared'; drawBoard(); });
+document.getElementById('clearSolutionBtn').addEventListener('click', clearSolution);
 
-// size inputs
-colsInp.addEventListener('change', ()=>{ COLS = parseInt(colsInp.value,10); resizeCanvas(); eqEdges.clear(); diffEdges.clear(); solution = null; cellClues = new Array(ROWS * COLS).fill(-1); drawBoard(); });
-rowsInp.addEventListener('change', ()=>{ ROWS = parseInt(rowsInp.value,10); resizeCanvas(); eqEdges.clear(); diffEdges.clear(); solution = null; cellClues = new Array(ROWS * COLS).fill(-1); drawBoard(); });
+// Clear the entire Build setup.
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  eqEdges.clear();
+  diffEdges.clear();
+  cellClues.fill(-1);
+  clearSolution();
+  document.getElementById('buildStatus').textContent='Cleared';
+});
+
+function changeSize(){
+  COLS=parseInt(colsInp.value,10);
+  ROWS=parseInt(rowsInp.value,10);
+  resizeCanvas();
+  eqEdges.clear();
+  diffEdges.clear();
+  cellClues=new Array(ROWS*COLS).fill(-1);
+  clearSolution();
+}
+colsInp.addEventListener('change', changeSize);
+rowsInp.addEventListener('change', changeSize);
 
 // tabs
 document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>{ document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); document.querySelectorAll('.tab-content').forEach(p=>p.classList.remove('active')); document.getElementById(btn.dataset.tab).classList.add('active'); drawBoard(); }));
