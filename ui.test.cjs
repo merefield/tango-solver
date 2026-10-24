@@ -151,6 +151,78 @@ test('Clear cancels queued solving and animation, and permits a fresh solve', ()
   assert.equal(p.element('status').textContent, '✅ Solved');
 });
 
+test('CP animation begins with the first discovered cell, not the first empty cell', () => {
+  const p = page();
+  p.evaluate('cellClues=[-1,-1,0,-1]');
+  p.element('strategySelect').value = 'propagation';
+  p.element('animateChk').checked = true;
+  p.element('startBtn').trigger();
+  p.tick();
+  p.tick();
+  assert.equal(p.evaluate('JSON.stringify(solution)'), '[-1,-1,-1,1]');
+  assert.equal(p.evaluate('animationMove.pos'), 3);
+  assert.match(p.element('status').textContent, /^Forced placement: row 2, column 2/);
+  assert.equal(p.evaluate('cellClues[2]'), 0);
+  while (p.timers.size) p.tick();
+  assert.equal(p.element('status').textContent, '✅ Solved');
+  assert.equal(p.evaluate('JSON.stringify(solution)'), '[1,0,0,1]');
+  assert.equal(p.evaluate('animationMove'), null);
+});
+
+test('each animated move matches the search trace, including backtracking', () => {
+  for (const strategy of ['backtracking', 'propagation']) {
+    const p = page();
+    p.evaluate(`ROWS=COLS=6; cellClues=Array(36).fill(-1); cellClues[2]=0;
+      eqEdges=new Set(['0,0|1,0','1,0|1,1','1,1|0,1']);`);
+    const expected = JSON.parse(p.evaluate(`(()=>{
+      const events=[]; const result=solvePuzzle('${strategy}',events);
+      return JSON.stringify({events,result});
+    })()`));
+    p.element('strategySelect').value = strategy;
+    p.element('animateChk').checked = true;
+    p.element('startBtn').trigger();
+    p.tick();
+    const partial = Array(36).fill(-1);
+    assert.ok(expected.events.some(event => event.kind === 'undo'));
+    for (const event of expected.events) {
+      assert.equal(p.timers.size, 1, 'long traces should use only one pending timer');
+      p.tick();
+      partial[event.pos] = event.value;
+      assert.equal(p.evaluate('JSON.stringify(solution)'), JSON.stringify(partial));
+      assert.deepEqual(JSON.parse(p.evaluate('JSON.stringify(animationMove)')), event);
+      if (event.kind === 'undo') assert.match(p.element('status').textContent, /^Backtrack:/);
+      assert.equal(p.evaluate('cellClues[2]'), 0);
+    }
+    p.tick();
+    assert.equal(p.timers.size, 0);
+    assert.equal(p.element('status').textContent, '✅ Solved');
+    assert.equal(p.evaluate('JSON.stringify(solution)'), JSON.stringify(expected.result.solution));
+    assert.equal(p.element('startBtn').disabled, false);
+    assert.equal(p.element('strategySelect').disabled, false);
+  }
+});
+
+test('unsolvable searches animate failed guesses and undo them before reporting failure', () => {
+  const p = page();
+  p.evaluate("eqEdges.add('0,0|0,1')");
+  p.element('animateChk').checked = true;
+  p.element('startBtn').trigger();
+  p.tick();
+  assert.equal(p.element('status').textContent, 'Animating...');
+  p.tick();
+  assert.equal(p.evaluate('solution[0]'), 0);
+  assert.match(p.element('status').textContent, /^Guess:/);
+  p.tick();
+  assert.equal(p.evaluate('solution[0]'), -1);
+  assert.match(p.element('status').textContent, /^Backtrack:/);
+  while (p.timers.size) p.tick();
+  assert.equal(p.element('status').textContent, 'No solution');
+  assert.equal(p.evaluate('solution'), null);
+  assert.equal(p.evaluate('animationMove'), null);
+  assert.equal(p.element('startBtn').disabled, false);
+  assert.equal(p.element('timer').children.length, 1);
+});
+
 test('complete puzzles finish with animation enabled; invalid setups report no solution', () => {
   const p = page();
   p.element('animateChk').checked = true;

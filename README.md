@@ -41,8 +41,17 @@ candidate support checks. A cell can be examined in both its row and its column,
 and again if a crossing line changes. The queue changes the amount and order of
 work, so its step counts can differ from earlier versions.
 Filtering line patterns is additional work that is not counted as extra steps.
-Time measures solving only, excluding the optional solution animation. Both
-strategies stop at the first solution; they do not check uniqueness.
+Time measures solving, including trace recording when enabled, and excludes
+animation playback. Both strategies stop at the first solution; they do not
+check uniqueness.
+
+**Animate search** records the solver's actual move order and replays it at
+200 milliseconds per move. Forced placements have a green border, guesses an
+amber border, and undo operations a red border. The status names each action and
+its cell. Failed branches visibly remove guesses and any deductions made under
+them, in reverse discovery order. Searches with no solution are also replayed.
+Animation records no extra trace when disabled. A single abandoned branch can
+undo several cells, while the Backtracks report counts abandoned branches.
 
 Forced placements count cells filled by propagation when only one candidate
 remains. Guesses count trial placements made by search; backtracks count those
@@ -55,6 +64,8 @@ with fresh counters.
 Each solve appends a row to the results history. **Clear** on the Solve tab removes
 the solution and cancels any pending animation, preserving the history and all
 Build clues. The history resets when you switch to **Build** or refresh the page.
+The history scrolls within the available space above the footer, while the board,
+controls, and footer stay in place. Focus the history to scroll with the keyboard.
 **Clear** on the Build tab clears the entire puzzle. Both grid dimensions must be
 even to allow equal numbers of suns and moons in every row and column.
 

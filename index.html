@@ -2,63 +2,48 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tango Puzzle Builder and Solver</title>
 <style>
  :root{--cell:64;--dot:20}
- body{font-family:system-ui;font-size:1.2rem;line-height:2rem;-apple-system,Segoe UI,Roboto,sans-serif;margin:1rem auto;display:flex;flex-direction:column;gap:1rem;width:100%;max-width:500px;}
- .surround{padding:20px;}
- #board{background:#fff;box-shadow:0 0 0 4px #000;cursor:pointer;width:100%;height:auto;}
- #side{display:flex;flex-direction:column;gap:1rem;}
- .tabs{display:flex;border-bottom:2px solid #000;margin-bottom:1rem}
- .tab-btn{flex:1;padding:0.55rem 0;text-align:center;border:1px solid #000;border-bottom:none;cursor:pointer;font-weight:600;background:#eaeaea}
- .tab-btn.active{background:#fff}
- .tab-content{display:none;flex-direction:column;gap:1rem}
- .tab-content.active{display:flex}
- button{padding:0.45rem 0.9rem;font-size:1.2rem;line-height:2rem;border:1px solid #000;border-radius:4px;background:#f0f0f0;cursor:pointer;font-weight:600}
- button:disabled{opacity:.5;cursor:not-allowed}
- #status,#buildStatus{font-weight:600;min-height:1.4rem}
-  input[type="number"], select {width:4rem;font-size:2.5rem;padding:0.25rem;text-align:center}
- label.size{display:flex;align-items:center;gap:0.3rem}
- #strategySelect{width:100%;font:inherit;text-align:left;box-sizing:border-box}
- #timer{display:flex;flex-direction:column;gap:0.5rem}
- .solve-result{display:flex;flex-wrap:wrap;column-gap:1rem}
- /* Footer styling */
- #footer {
-   margin: 0 auto;
-   position: fixed;
-   bottom: 0;
-   left: 0;
-   background: #f0f0f0;
-   text-align: center;
-   padding: 2rem;
-   font-size: 2rem;
-   justify-items: center;
-   .text {
-    margin: 0 auto;
-   }
+ html{height:100%;overflow:hidden}
+ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:1.2rem;line-height:2rem;margin:0;display:grid;grid-template-rows:minmax(0,1fr) auto;width:100%;height:100vh;height:100dvh;overflow:hidden;}
+ .surround{box-sizing:border-box;padding:20px;width:100%;max-width:500px;margin:0 auto;min-height:0;display:grid;grid-template-rows:minmax(0,2fr) auto auto minmax(0,1fr);gap:0.75rem;}
+ .board-area{min-width:0;min-height:0;display:grid;place-items:center;padding:4px;}
+ #board{background:#fff;box-shadow:0 0 0 4px #000;cursor:pointer;width:auto;height:auto;min-width:0;min-height:0;max-width:100%;max-height:100%;}
+ #side{display:contents;}
+ .tabs{display:flex;border-bottom:2px solid #000;}
+ .tab-btn{flex:1;padding:0.55rem 0;text-align:center;border:1px solid #000;border-bottom:none;cursor:pointer;font-weight:600;background:#eaeaea;}
+ .tab-btn.active{background:#fff;}
+ .tab-content{display:none;flex-direction:column;gap:1rem;}
+ .tab-content.active{display:flex;}
+ #solveTab.active{display:contents;}
+ #buildTab{grid-row:3 / 5;min-height:0;}
+ .solve-controls{display:flex;flex-direction:column;gap:0.5rem;}
+ .solve-buttons{display:flex;gap:0.5rem;}
+ .solve-buttons button{flex:1;}
+ button{padding:0.45rem 0.9rem;font:inherit;border:1px solid #000;border-radius:4px;background:#f0f0f0;cursor:pointer;font-weight:600;}
+ button:disabled{opacity:.5;cursor:not-allowed;}
+ #status,#buildStatus{font-weight:600;min-height:1.4rem;}
+ #status{height:4rem;overflow:hidden;}
+ input[type="number"],select{width:4rem;font-size:2.5rem;padding:0.25rem;text-align:center;}
+ label.size{display:flex;align-items:center;gap:0.3rem;}
+ #strategySelect{width:100%;font:inherit;text-align:left;box-sizing:border-box;}
+ #timer{display:flex;flex-direction:column;gap:0.5rem;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;}
+ #timer:focus-visible{outline:2px solid #000;outline-offset:2px;}
+ .solve-result{display:flex;flex-wrap:wrap;column-gap:1rem;flex-shrink:0;}
+ #footer{box-sizing:border-box;width:100%;background:#f0f0f0;text-align:center;padding:0.75rem 1rem;font-size:1rem;line-height:1.5rem;}
+ @media(max-width:600px){
+   body{font-size:1rem;line-height:1.5rem;}
+   .surround{padding:12px;gap:0.5rem;}
+   #status{height:3rem;}
+   label.size select{font-size:1.5rem;}
  }
- /* Ensure content isn't hidden behind footer */
- body { padding-bottom: 3rem; }
- @media (max-width: 1000px) {
-  body {
-    max-width: none;
-    font-size:2.5rem;
-    line-height:3rem;
-    button {
-      font-size: 2.5rem;
-      padding: 1rem 2rem;
-      line-height: 3rem;
-      color: black;
-    }
-    margin: 0;
-    width: 100%;
-  }
-}
 </style>
 </head>
 <body>
   <div class="surround">
-    <canvas id="board"></canvas>
+    <div class="board-area"><canvas id="board"></canvas></div>
     <div id="side">
       <div class="tabs">
         <div class="tab-btn active" data-tab="solveTab">Solve</div>
@@ -67,17 +52,21 @@
 
       <!-- Solve -->
       <div id="solveTab" class="tab-content active">
-        <label><input type="checkbox" id="animateChk"> Animate solution</label>
-        <label for="strategySelect">Strategy
-          <select id="strategySelect">
-            <option value="backtracking">Backtracking</option>
-            <option value="propagation">Constraint propagation + backtracking</option>
-          </select>
-        </label>
-        <button id="startBtn">Start</button>
-        <button id="clearSolutionBtn">Clear</button>
-        <div id="status" role="status">Idle</div>
-        <div id="timer" title="A step is one candidate symbol checked against the puzzle rules."></div>
+        <div class="solve-controls">
+          <label><input type="checkbox" id="animateChk"> Animate search</label>
+          <label for="strategySelect">Strategy
+            <select id="strategySelect">
+              <option value="backtracking">Backtracking</option>
+              <option value="propagation">Constraint propagation + backtracking</option>
+            </select>
+          </label>
+          <div class="solve-buttons">
+            <button id="startBtn">Start</button>
+            <button id="clearSolutionBtn">Clear</button>
+          </div>
+          <div id="status" role="status">Idle</div>
+        </div>
+        <div id="timer" tabindex="0" role="region" aria-label="Solve history" title="A step is one candidate symbol checked against the puzzle rules."></div>
       </div>
 
       <!-- Build -->
@@ -110,7 +99,7 @@
         </div>
         <button id="clearBtn">Clear</button>
         <div id="buildStatus">build mode ready</div>
-  </div>
+      </div>
     </div>
   </div>
 <script>
@@ -127,6 +116,7 @@ resizeCanvas();
 // PUZZLE STATE
 let eqEdges = new Set(), diffEdges = new Set();
 let solution = null;
+let animationMove = null;
 let cellClues = new Array(ROWS * COLS).fill(-1);
 
 // HELPERS
@@ -181,6 +171,12 @@ function drawBoard(){
   ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${CELL/2}px sans-serif`;
   eqEdges.forEach(k=>{ const [[r1,c1],[r2,c2]] = k.split('|').map(s=>s.split(',').map(Number)); drawClue('=',r1,c1,r2,c2); });
   diffEdges.forEach(k=>{ const [[r1,c1],[r2,c2]] = k.split('|').map(s=>s.split(',').map(Number)); drawClue('×',r1,c1,r2,c2); });
+  if(animationMove){
+    const {pos,kind}=animationMove;
+    ctx.strokeStyle=kind==='undo'?'#c62828':kind==='guess'?'#a65d00':'#16733a';
+    ctx.lineWidth=4;
+    ctx.strokeRect((pos%COLS)*CELL+3,Math.floor(pos/COLS)*CELL+3,CELL-6,CELL-6);
+  }
 }
 function drawClue(sym, r1, c1, r2, c2){
   let x,y;
@@ -303,18 +299,32 @@ function setValue(assign, pos, value, rules){
   }
 }
 
-function solveRec(assign, stats, pos=0, rules=createRules(assign)){
+function recordPlacement(trace, pos, value, kind){
+  trace.events.push({pos,value,kind});
+  trace.trail.push(pos);
+}
+
+function rewindTrace(trace, checkpoint){
+  while(trace.trail.length>checkpoint){
+    trace.events.push({pos:trace.trail.pop(),value:-1,kind:'undo'});
+  }
+}
+
+function solveRec(assign, stats, pos=0, rules=createRules(assign), trace=null){
   while(pos<assign.length&&assign[pos]!==-1) pos++;
   if(pos===assign.length) return assign;
   for(let value=0;value<=1;value++){
     stats.steps++;
     if(!valid(assign,pos,value,rules)) continue;
     stats.guesses++;
+    const checkpoint=trace?trace.trail.length:0;
     setValue(assign,pos,value,rules);
-    const result=solveRec(assign,stats,pos+1,rules);
+    if(trace) recordPlacement(trace,pos,value,'guess');
+    const result=solveRec(assign,stats,pos+1,rules,trace);
     if(result) return result;
     stats.backtracks++;
     setValue(assign,pos,-1,rules);
+    if(trace) rewindTrace(trace,checkpoint);
   }
   return null;
 }
@@ -384,7 +394,7 @@ function lineSupport(assign, line){
   return (line.zeros|line.ones)!==0;
 }
 
-function solveWithPropagation(assign, stats, lines, dirtyLines=null){
+function solveWithPropagation(assign, stats, lines, dirtyLines=null, trace=null){
   const queue=dirtyLines?dirtyLines.slice():Array.from({length:lines.length},(_,i)=>i);
   const queued=new Uint8Array(lines.length);
   for(const id of queue) queued[id]=1;
@@ -401,6 +411,7 @@ function solveWithPropagation(assign, stats, lines, dirtyLines=null){
       if(mask===3) continue;
       assign[pos]=mask===1?0:1;
       stats.forcedPlacements++;
+      if(trace) recordPlacement(trace,pos,assign[pos],'forced');
       // All patterns already agree on this value in the current line. Only the
       // intersecting line needs to be reconsidered as a result of the placement.
       const crossing=id<ROWS?ROWS+pos%COLS:Math.floor(pos/COLS);
@@ -416,28 +427,34 @@ function solveWithPropagation(assign, stats, lines, dirtyLines=null){
   const affected=[Math.floor(next/COLS),ROWS+next%COLS];
   for(let value=0;value<=1;value++){
     stats.guesses++;
+    const checkpoint=trace?trace.trail.length:0;
     const branch=assign.slice();
     branch[next]=value;
-    const result=solveWithPropagation(branch,stats,lines,affected);
+    if(trace) recordPlacement(trace,next,value,'guess');
+    const result=solveWithPropagation(branch,stats,lines,affected,trace);
     if(result) return result;
     stats.backtracks++;
+    if(trace) rewindTrace(trace,checkpoint);
   }
   return null;
 }
 
-function solvePuzzle(strategy){
+function solvePuzzle(strategy, events=null){
   const stats={steps:0,forcedPlacements:0,guesses:0,backtracks:0};
   const assign=cellClues.slice();
+  const trace=events?{events,trail:[]}:null;
   if(ROWS%2!==0||COLS%2!==0) return {solution:null,...stats};
   if(strategy==='propagation'){
     // Pattern filtering validates the initial clues as well as deductions.
-    return {solution:solveWithPropagation(assign,stats,puzzleLines()),...stats};
+    const solved=solveWithPropagation(assign,stats,puzzleLines(),null,trace);
+    if(!solved&&trace) rewindTrace(trace,0);
+    return {solution:solved,...stats};
   }
   const rules=createRules(assign);
   for(let pos=0;pos<assign.length;pos++){
     if(assign[pos]!==-1&&!valid(assign,pos,assign[pos],rules)) return {solution:null,...stats};
   }
-  return {solution:solveRec(assign,stats,0,rules),...stats};
+  return {solution:solveRec(assign,stats,0,rules,trace),...stats};
 }
 
 // UI
@@ -452,8 +469,10 @@ function schedule(callback, delay){
   },delay);
   pendingTimers.add(timer);
 }
-function finishSolve(){
-  statusEl.textContent='✅ Solved';
+function finishSolve(solved=true){
+  statusEl.textContent=solved?'✅ Solved':ROWS%2||COLS%2
+    ? 'No solution: rows and columns must both be even.'
+    : 'No solution';
   startBtn.disabled=false;
   strategySelect.disabled=false;
 }
@@ -462,6 +481,7 @@ function clearSolution(){
   pendingTimers.forEach(timer=>clearTimeout(timer));
   pendingTimers.clear();
   solution=null;
+  animationMove=null;
   statusEl.textContent='Idle';
   startBtn.disabled=false;
   strategySelect.disabled=false;
@@ -478,8 +498,9 @@ startBtn.addEventListener('click', () => {
   strategySelect.disabled=true;
   schedule(() => {
     if(currentRun!==runId) return;
+    const events=animate?[]:null;
     const t0=performance.now();
-    const result=solvePuzzle(strategy);
+    const result=solvePuzzle(strategy,events);
     const dt=(performance.now()-t0)/1000;
     const entry=document.createElement('div');
     entry.className='solve-result';
@@ -498,34 +519,34 @@ startBtn.addEventListener('click', () => {
       entry.append(item);
     }
     timerEl.append(entry);
-    if(!result.solution){
-      statusEl.textContent=ROWS%2||COLS%2
-        ? 'No solution: rows and columns must both be even.'
-        : 'No solution';
-      startBtn.disabled=false;
-      strategySelect.disabled=false;
-      return;
-    }
-    const toAnim=[];
-    for(let pos=0;pos<cellClues.length;pos++){
-      if(cellClues[pos]===-1) toAnim.push(pos);
-    }
-    if(!animate||toAnim.length===0){
+    if(!animate||events.length===0){
       solution=result.solution;
       drawBoard();
-      finishSolve();
+      finishSolve(result.solution!==null);
       return;
     }
     solution=new Array(cellClues.length).fill(-1);
     statusEl.textContent='Animating...';
-    toAnim.forEach((pos,i)=>{
-      schedule(()=>{
-        if(currentRun!==runId) return;
-        solution[pos]=result.solution[pos];
+    let index=0;
+    function playNext(){
+      if(currentRun!==runId) return;
+      if(index===events.length){
+        animationMove=null;
+        solution=result.solution;
         drawBoard();
-        if(i===toAnim.length-1) finishSolve();
-      },i*200);
-    });
+        finishSolve(result.solution!==null);
+        return;
+      }
+      const event=events[index++];
+      solution[event.pos]=event.value;
+      animationMove=event;
+      const action=event.kind==='forced'?'Forced placement':event.kind==='guess'?'Guess':'Backtrack';
+      statusEl.textContent=`${action}: row ${Math.floor(event.pos/COLS)+1}, column ${event.pos%COLS+1} (${index}/${events.length})`;
+      drawBoard();
+      // Keep one playback timer pending, even for a long search trace.
+      schedule(playNext,200);
+    }
+    schedule(playNext,0);
   },0);
 });
 
@@ -570,7 +591,7 @@ drawBoard();
   </script>
   <footer id="footer">
     <div class="text">
-    Tango Solver 0.5.1 · I'm a software engineer and consultant, find me @
+    Tango Solver 0.5.2 · I'm a software engineer and consultant, find me @
     <a href="https://merefield.tech" target="_blank" rel="noopener">https://merefield.tech</a>
     </div>
   </footer>

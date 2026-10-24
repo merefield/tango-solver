@@ -103,6 +103,94 @@ test('reports distinguish forced deductions from trial placements', () => {
   assert.equal(branching.backtracks, 0);
 });
 
+function tracedRun(rows, cols, clues, equal, different, strategy) {
+  const context = solverContext(rows, cols, clues, equal, different);
+  context.strategy = strategy;
+  return JSON.parse(vm.runInContext(`
+    const events=[];
+    const result=solvePuzzle(strategy,events);
+    JSON.stringify({result,events});
+  `, context));
+}
+
+function replayTrace(clues, events) {
+  const board = clues.slice(), trail = [];
+  for (const { pos, value, kind } of events) {
+    assert.equal(clues[pos], -1, 'animation must never change a Build clue');
+    if (kind === 'undo') {
+      assert.equal(value, -1);
+      assert.notEqual(board[pos], -1, 'cannot undo an empty cell');
+      assert.equal(trail.pop(), pos, 'undo must reverse discovery order');
+    } else {
+      assert.ok(kind === 'forced' || kind === 'guess');
+      assert.ok(value === 0 || value === 1);
+      assert.equal(board[pos], -1, 'cannot overwrite an active placement');
+      trail.push(pos);
+    }
+    board[pos] = value;
+  }
+  return board;
+}
+
+test('CP trace follows actual deductions rather than row-by-row reveal order', () => {
+  const clues = [-1, -1, 0, -1];
+  const { result, events } = tracedRun(2, 2, clues, [], [], 'propagation');
+  assert.deepEqual(events.map(event => event.pos), [3, 0, 1]);
+  assert.ok(events.every(event => event.kind === 'forced'));
+  assert.deepEqual(replayTrace(clues, events), result.solution);
+});
+
+test('traces show failed branches and preserve solutions and all report counters', () => {
+  const clues = Array(36).fill(-1);
+  clues[2] = 0;
+  const equal = ['0,0|1,0', '1,0|1,1', '1,1|0,1'];
+  for (const strategy of ['backtracking', 'propagation']) {
+    const { result, events } = tracedRun(6, 6, clues, equal, [], strategy);
+    assert.deepEqual(result, run(6, 6, clues, equal, [], strategy));
+    assert.deepEqual(replayTrace(clues, events), result.solution);
+    assert.equal(events.filter(event => event.kind === 'guess').length, result.guesses);
+    assert.equal(events.filter(event => event.kind === 'forced').length, result.forcedPlacements);
+    assert.ok(events.some(event => event.kind === 'undo'));
+    if (strategy === 'backtracking') {
+      assert.equal(events.filter(event => event.kind === 'undo').length, result.backtracks);
+    } else {
+      assert.ok(events.filter(event => event.kind === 'undo').length > result.backtracks,
+        'failed CP branches must also undo deductions made after a guess');
+    }
+  }
+});
+
+test('failed search traces undo every speculative placement and deduction', () => {
+  const clues = Array(16).fill(-1);
+  const equal = ['0,0|0,1', '0,1|1,1', '1,1|1,0'];
+  const different = ['1,0|0,0'];
+  for (const strategy of ['backtracking', 'propagation']) {
+    const { result, events } = tracedRun(4, 4, clues, equal, different, strategy);
+    assert.equal(result.solution, null);
+    assert.ok(events.length > 0);
+    assert.deepEqual(replayTrace(clues, events), clues);
+    assert.deepEqual(result, run(4, 4, clues, equal, different, strategy));
+  }
+  // A contradiction can also follow forced placements before the first guess.
+  const context = solverContext(6, 6, [0, ...Array(35).fill(-1)], ['0,0|1,0', '1,0|1,1', '1,1|0,1'], ['0,0|0,1']);
+  const failure = JSON.parse(vm.runInContext(`
+    const events=[]; const result=solvePuzzle('propagation',events);
+    JSON.stringify({result,events});
+  `, context));
+  assert.equal(failure.result.solution, null);
+  assert.equal(failure.result.guesses, 0);
+  assert.ok(failure.events.some(event => event.kind === 'forced'));
+  assert.deepEqual(replayTrace([0, ...Array(35).fill(-1)], failure.events), [0, ...Array(35).fill(-1)]);
+});
+
+test('complete puzzles require no trace events', () => {
+  for (const strategy of ['backtracking', 'propagation']) {
+    const { result, events } = tracedRun(2, 2, [0, 1, 1, 0], [], [], strategy);
+    assert.deepEqual(result.solution, [0, 1, 1, 0]);
+    assert.deepEqual(events, []);
+  }
+});
+
 test('queued deductions cascade through intersecting lines on rectangular boards', () => {
   for (const [rows, cols] of [[4, 6], [6, 4], [6, 6], [8, 8]]) {
     const pattern = length => length === 4 ? [0, 0, 1, 1]
