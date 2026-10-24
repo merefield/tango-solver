@@ -45,8 +45,11 @@ Time measures solving, including trace recording when enabled, and excludes
 animation playback. Both strategies stop at the first solution; they do not
 check uniqueness.
 
-**Animate search** records the solver's actual move order and replays it at
-200 milliseconds per move. Forced placements have a green border, guesses an
+**Animate search** records the solver's actual move order and replays it at the
+selected speed: **Fast** (the default) waits 0.2 seconds between moves, **Medium**
+waits 0.5 seconds, and **Slow** waits 1 second. The speed dropdown sits to the right
+of Animate search and can be changed during playback for subsequent moves.
+Forced placements have a green border, guesses an
 amber border, and undo operations a red border. The status names each action and
 its cell. Failed branches visibly remove guesses and any deductions made under
 them, in reverse discovery order. Searches with no solution are also replayed.

@@ -20,6 +20,9 @@
  #solveTab.active{display:contents;}
  #buildTab{grid-row:3 / 5;min-height:0;}
  .solve-controls{display:flex;flex-direction:column;gap:0.5rem;}
+ .animation-controls{display:flex;align-items:center;gap:0.75rem;}
+ .animation-controls label{white-space:nowrap;}
+ #animationSpeed{width:auto;font:inherit;}
  .solve-buttons{display:flex;gap:0.5rem;}
  .solve-buttons button{flex:1;}
  button{padding:0.45rem 0.9rem;font:inherit;border:1px solid #000;border-radius:4px;background:#f0f0f0;cursor:pointer;font-weight:600;}
@@ -53,7 +56,14 @@
       <!-- Solve -->
       <div id="solveTab" class="tab-content active">
         <div class="solve-controls">
-          <label><input type="checkbox" id="animateChk"> Animate search</label>
+          <div class="animation-controls">
+            <label><input type="checkbox" id="animateChk"> Animate search</label>
+            <select id="animationSpeed" aria-label="Animation speed">
+              <option value="1000">Slow</option>
+              <option value="500">Medium</option>
+              <option value="200" selected>Fast</option>
+            </select>
+          </div>
           <label for="strategySelect">Strategy
             <select id="strategySelect">
               <option value="backtracking">Backtracking</option>
@@ -460,6 +470,7 @@ function solvePuzzle(strategy, events=null){
 // UI
 const startBtn = document.getElementById('startBtn'), statusEl = document.getElementById('status'), timerEl = document.getElementById('timer'), animateChk = document.getElementById('animateChk');
 const strategySelect = document.getElementById('strategySelect');
+const animationSpeed = document.getElementById('animationSpeed');
 let runId=0;
 let pendingTimers=new Set();
 function schedule(callback, delay){
@@ -544,7 +555,7 @@ startBtn.addEventListener('click', () => {
       statusEl.textContent=`${action}: row ${Math.floor(event.pos/COLS)+1}, column ${event.pos%COLS+1} (${index}/${events.length})`;
       drawBoard();
       // Keep one playback timer pending, even for a long search trace.
-      schedule(playNext,200);
+      schedule(playNext,Number(animationSpeed.value)||200);
     }
     schedule(playNext,0);
   },0);
@@ -591,7 +602,7 @@ drawBoard();
   </script>
   <footer id="footer">
     <div class="text">
-    Tango Solver 0.5.2 · I'm a software engineer and consultant, find me @
+    Tango Solver 0.5.3 · I'm a software engineer and consultant, find me @
     <a href="https://merefield.tech" target="_blank" rel="noopener">https://merefield.tech</a>
     </div>
   </footer>

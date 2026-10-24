@@ -27,6 +27,7 @@ function page() {
   }
   element('colsInp').value = element('rowsInp').value = '2';
   element('strategySelect').value = 'backtracking';
+  element('animationSpeed').value = '200';
   Object.defineProperty(element('strategySelect'), 'selectedOptions', {
     get: () => [{ textContent: element('strategySelect').value === 'backtracking'
       ? 'Backtracking' : 'Constraint propagation + backtracking' }]
@@ -44,14 +45,15 @@ function page() {
       querySelectorAll: selector => selector === '.tab-btn' ? tabs
         : [element('solveTab'), element('buildTab')] },
     performance: { now: () => 10 },
-    setTimeout: callback => { timers.set(++nextTimer, callback); return nextTimer; },
+    setTimeout: (callback, delay) => { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
     clearTimeout: id => timers.delete(id)
   });
   vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
   return { element, timers,
     evaluate: code => vm.runInContext(code, context),
+    nextDelay: () => timers.values().next().value?.delay,
     tick() {
-      const [id, callback] = timers.entries().next().value;
+      const [id, { callback }] = timers.entries().next().value;
       timers.delete(id);
       callback();
     }
@@ -167,6 +169,49 @@ test('CP animation begins with the first discovered cell, not the first empty ce
   assert.equal(p.element('status').textContent, '✅ Solved');
   assert.equal(p.evaluate('JSON.stringify(solution)'), '[1,0,0,1]');
   assert.equal(p.evaluate('animationMove'), null);
+});
+
+test('each animation speed applies its requested delay without changing solve reports', () => {
+  for (const strategy of ['backtracking', 'propagation']) {
+    let expectedMetrics;
+    for (const speed of [200, 500, 1000]) {
+      const p = page();
+      p.element('strategySelect').value = strategy;
+      p.element('animateChk').checked = true;
+      p.element('animationSpeed').value = String(speed);
+      p.element('startBtn').trigger();
+      p.tick();
+      assert.equal(p.nextDelay(), 0, 'the first move should start immediately');
+      p.tick();
+      while (p.timers.size) {
+        assert.equal(p.timers.size, 1);
+        assert.equal(p.nextDelay(), speed);
+        p.tick();
+      }
+      assert.equal(p.element('status').textContent, '✅ Solved');
+      const metrics = p.element('timer').children[0].children.map(item => item.textContent);
+      if (expectedMetrics) assert.deepEqual(metrics, expectedMetrics);
+      expectedMetrics = metrics;
+    }
+  }
+});
+
+test('animation defaults to Fast and allows speed changes during playback', () => {
+  const p = page();
+  p.element('animateChk').checked = true;
+  p.element('startBtn').trigger();
+  p.tick();
+  p.tick();
+  assert.equal(p.nextDelay(), 200);
+  p.element('animationSpeed').value = '1000';
+  p.tick();
+  assert.equal(p.nextDelay(), 1000);
+  p.element('animationSpeed').value = '500';
+  p.tick();
+  assert.equal(p.nextDelay(), 500);
+  p.element('clearSolutionBtn').trigger();
+  assert.equal(p.timers.size, 0);
+  assert.equal(p.element('status').textContent, 'Idle');
 });
 
 test('each animated move matches the search trace, including backtracking', () => {
