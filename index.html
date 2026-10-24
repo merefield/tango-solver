@@ -303,16 +303,6 @@ function setValue(assign, pos, value, rules){
   }
 }
 
-// Count the same work for both strategies: each candidate symbol checked.
-function candidates(assign, pos, stats, supported=3, rules=createRules(assign)){
-  const values = [];
-  for(let value=0;value<=1;value++){
-    stats.steps++;
-    if((supported & (1<<value))&&valid(assign,pos,value,rules)) values.push(value);
-  }
-  return values;
-}
-
 function solveRec(assign, stats, pos=0, rules=createRules(assign)){
   while(pos<assign.length&&assign[pos]!==-1) pos++;
   if(pos===assign.length) return assign;
@@ -329,50 +319,35 @@ function solveRec(assign, stats, pos=0, rules=createRules(assign)){
   return null;
 }
 
-// Cache all balanced, triple-free patterns for each supported line length.
-const patternCache=new Map();
-function linePatterns(length){
-  if(patternCache.has(length)) return patternCache.get(length);
-  const patterns=[];
-  function extend(prefix, ones){
-    if(prefix.length===length){
-      patterns.push(prefix);
-      return;
-    }
-    for(let value=0;value<=1;value++){
-      const nextOnes=ones+value;
-      if(nextOnes>length/2||prefix.length+1-nextOnes>length/2) continue;
-      if(prefix.length>=2&&prefix.at(-1)===value&&prefix.at(-2)===value) continue;
-      extend([...prefix,value],nextOnes);
-    }
+// Each supported row or column fits in a small integer mask.
+const patternMaskCache=new Map();
+function linePatternMasks(length){
+  if(patternMaskCache.has(length)) return patternMaskCache.get(length);
+  const patterns=[], fullMask=(1<<length)-1;
+  for(let pattern=0;pattern<=fullMask;pattern++){
+    const zeros=fullMask^pattern;
+    if((pattern&(pattern>>1)&(pattern>>2))||(zeros&(zeros>>1)&(zeros>>2))) continue;
+    let ones=0;
+    for(let bits=pattern;bits;bits&=bits-1) ones++;
+    if(ones===length/2) patterns.push(pattern);
   }
-  extend([],0);
-  patternCache.set(length,patterns);
+  patternMaskCache.set(length,patterns);
   return patterns;
 }
 
-const patternMaskCache=new Map();
-function linePatternMasks(length){
-  if(!patternMaskCache.has(length)){
-    patternMaskCache.set(length,linePatterns(length).map(pattern=>
-      pattern.reduce((mask,value,i)=>mask|(value<<i),0)
-    ));
-  }
-  return patternMaskCache.get(length);
-}
-
 function puzzleLines(){
+  const equalMasks=new Array(ROWS+COLS).fill(0), differentMasks=new Array(ROWS+COLS).fill(0);
+  // Compile actual clue edges once, instead of looking up every possible edge.
+  for(const [edges,masks] of [[eqEdges,equalMasks],[diffEdges,differentMasks]]){
+    for(const key of edges){
+      const [[r1,c1],[r2,c2]]=key.split('|').map(cell=>cell.split(',').map(Number));
+      if(r1===r2) masks[r1]|=1<<Math.min(c1,c2);
+      else masks[ROWS+c1]|=1<<Math.min(r1,r2);
+    }
+  }
   const lines=[];
   function addLine(positions){
-    let equalMask=0, differentMask=0;
-    for(let i=1;i<positions.length;i++){
-      const previous=positions[i-1], pos=positions[i];
-      const r1=Math.floor(previous/COLS), c1=previous%COLS;
-      const r2=Math.floor(pos/COLS), c2=pos%COLS;
-      if(hasEq(r1,c1,r2,c2)) equalMask|=1<<(i-1);
-      if(hasDiff(r1,c1,r2,c2)) differentMask|=1<<(i-1);
-    }
-    // One bit per cell; adjacent XOR bits identify different symbols.
+    const id=lines.length, equalMask=equalMasks[id], differentMask=differentMasks[id];
     const patterns=linePatternMasks(positions.length).filter(pattern=>{
       const changes=pattern^(pattern>>1);
       return (changes&equalMask)===0&&(changes&differentMask)===differentMask;
@@ -384,70 +359,66 @@ function puzzleLines(){
   return lines;
 }
 
-function lineSupports(assign, lines){
-  // Bits 1 and 2 represent a supported moon and sun, respectively.
-  const supported=new Array(assign.length).fill(3);
-  for(const line of lines){
-    const {positions,patterns,fullMask}=line;
-    let knownMask=0, valueMask=0;
-    for(let i=0;i<positions.length;i++){
-      const value=assign[positions[i]];
-      if(value===-1) continue;
-      knownMask|=1<<i;
-      valueMask|=value<<i;
-    }
-    // This key includes every assigned symbol, so reuse is safe across branches.
-    if(line.knownMask!==knownMask||line.valueMask!==valueMask){
-      let zeros=0, ones=0;
-      for(const pattern of patterns){
-        if((pattern&knownMask)!==valueMask) continue;
-        zeros|=fullMask^pattern;
-        ones|=pattern;
-      }
-      line.knownMask=knownMask;
-      line.valueMask=valueMask;
-      line.zeros=zeros;
-      line.ones=ones;
-    }
-    for(let i=0;i<positions.length;i++){
-      const mask=((line.zeros>>i)&1)|(((line.ones>>i)&1)<<1);
-      supported[positions[i]]&=mask;
-      if(supported[positions[i]]===0) return null;
-    }
+function lineSupport(assign, line){
+  const {positions,patterns,fullMask}=line;
+  let knownMask=0, valueMask=0;
+  for(let i=0;i<positions.length;i++){
+    const value=assign[positions[i]];
+    if(value===-1) continue;
+    knownMask|=1<<i;
+    valueMask|=value<<i;
   }
-  return supported;
+  // Include every assigned symbol so reuse is safe after a branch is abandoned.
+  if(line.knownMask!==knownMask||line.valueMask!==valueMask){
+    let zeros=0, ones=0;
+    for(const pattern of patterns){
+      if((pattern&knownMask)!==valueMask) continue;
+      zeros|=fullMask^pattern;
+      ones|=pattern;
+    }
+    line.knownMask=knownMask;
+    line.valueMask=valueMask;
+    line.zeros=zeros;
+    line.ones=ones;
+  }
+  return (line.zeros|line.ones)!==0;
 }
 
-function solveWithPropagation(assign, stats, lines, rules=createRules(assign)){
-  let next;
-  // Repeatedly fill cells with only one legal value before making a guess.
-  while(true){
-    let changed=false;
-    next=null;
-    const supported=lineSupports(assign,lines);
-    if(supported===null) return null;
-    for(let pos=0;pos<assign.length;pos++){
+function solveWithPropagation(assign, stats, lines, dirtyLines=null){
+  const queue=dirtyLines?dirtyLines.slice():Array.from({length:lines.length},(_,i)=>i);
+  const queued=new Uint8Array(lines.length);
+  for(const id of queue) queued[id]=1;
+  for(let head=0;head<queue.length;head++){
+    const id=queue[head], line=lines[id];
+    queued[id]=0;
+    if(!lineSupport(assign,line)) return null;
+    for(let i=0;i<line.positions.length;i++){
+      const pos=line.positions[i];
       if(assign[pos]!==-1) continue;
-      const values=candidates(assign,pos,stats,supported[pos],rules);
-      if(values.length===0) return null;
-      if(values.length===1){
-        stats.forcedPlacements++;
-        setValue(assign,pos,values[0],rules);
-        changed=true;
-      } else if(next===null||values.length<next.values.length){
-        next={pos,values};
+      // Check both candidate symbols using the line's complete valid patterns.
+      stats.steps+=2;
+      const mask=((line.zeros>>i)&1)|(((line.ones>>i)&1)<<1);
+      if(mask===3) continue;
+      assign[pos]=mask===1?0:1;
+      stats.forcedPlacements++;
+      // All patterns already agree on this value in the current line. Only the
+      // intersecting line needs to be reconsidered as a result of the placement.
+      const crossing=id<ROWS?ROWS+pos%COLS:Math.floor(pos/COLS);
+      if(!queued[crossing]){
+        queued[crossing]=1;
+        queue.push(crossing);
       }
     }
-    if(!changed) break;
   }
-  if(next===null) return assign;
-  // Minimum remaining values; keep deductions isolated within each branch.
-  for(const value of next.values){
+  const next=assign.indexOf(-1);
+  if(next===-1) return assign;
+  // At this fixed point every unfilled cell has both candidates remaining.
+  const affected=[Math.floor(next/COLS),ROWS+next%COLS];
+  for(let value=0;value<=1;value++){
     stats.guesses++;
     const branch=assign.slice();
-    const branchRules={...rules,rowCounts:rules.rowCounts.slice(),colCounts:rules.colCounts.slice()};
-    setValue(branch,next.pos,value,branchRules);
-    const result=solveWithPropagation(branch,stats,lines,branchRules);
+    branch[next]=value;
+    const result=solveWithPropagation(branch,stats,lines,affected);
     if(result) return result;
     stats.backtracks++;
   }
@@ -457,16 +428,16 @@ function solveWithPropagation(assign, stats, lines, rules=createRules(assign)){
 function solvePuzzle(strategy){
   const stats={steps:0,forcedPlacements:0,guesses:0,backtracks:0};
   const assign=cellClues.slice();
-  // Validate supplied clues too, including already-complete boards.
   if(ROWS%2!==0||COLS%2!==0) return {solution:null,...stats};
+  if(strategy==='propagation'){
+    // Pattern filtering validates the initial clues as well as deductions.
+    return {solution:solveWithPropagation(assign,stats,puzzleLines()),...stats};
+  }
   const rules=createRules(assign);
   for(let pos=0;pos<assign.length;pos++){
     if(assign[pos]!==-1&&!valid(assign,pos,assign[pos],rules)) return {solution:null,...stats};
   }
-  const solved=strategy==='propagation'
-    ? solveWithPropagation(assign,stats,puzzleLines(),rules)
-    : solveRec(assign,stats,0,rules);
-  return {solution:solved,...stats};
+  return {solution:solveRec(assign,stats,0,rules),...stats};
 }
 
 // UI

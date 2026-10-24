@@ -29,12 +29,17 @@ Choose a strategy before pressing **Start**:
   legal symbol. It checks complete balanced row and column patterns with no three
   consecutive matching symbols, including `=` / `×` edges. This captures deductions
   such as a matching pair at one end forcing the opposite end of a six-cell line.
-  Each line uses its own length, including on rectangular boards. If deductions
-  stall, it branches on a cell with the fewest remaining choices.
+  Each line uses its own length, including on rectangular boards. New placements
+  queue only the intersecting lines for further deductions. If deductions stall,
+  it branches on an unfilled cell (each then has both symbols available).
 
 The result reports `Time`, `Steps`, the strategy used, `Forced placements`,
 `Guesses`, and `Backtracks`. A step is one candidate
 symbol checked against the rules, including failed choices and propagation checks.
+For propagation, each unfilled cell examined in a processed line counts as two
+candidate support checks. A cell can be examined in both its row and its column,
+and again if a crossing line changes. The queue changes the amount and order of
+work, so its step counts can differ from earlier versions.
 Filtering line patterns is additional work that is not counted as extra steps.
 Time measures solving only, excluding the optional solution animation. Both
 strategies stop at the first solution; they do not check uniqueness.
@@ -54,11 +59,15 @@ Build clues. The history resets when you switch to **Build** or refresh the page
 even to allow equal numbers of suns and moons in every row and column.
 
 Run the automated checks with `node --test *.test.cjs` (Node.js 18 or later).
-Run `node benchmark.cjs` for repeated solve timings on five synthetic puzzles.
+Run `node benchmark.cjs` for repeated solve timings on six synthetic puzzles,
+including a 6×6 puzzle solved with 32 forced placements and no guesses.
 To compare with a saved version, run `node benchmark.cjs /path/to/old/index.html`;
-the comparison also checks that solutions and all report counters match.
+the comparison checks that solutions match and backtracking counters are unchanged.
+Propagation counters reflect the work performed by each implementation.
 The benchmark includes rule preparation and excludes drawing and animation.
-It measures warmed Node.js performance; browser timings can differ.
+By default it measures warmed Node.js performance. Add `--cold` to measure each
+solve with fresh solver state and empty caches; loading code is excluded. These
+measurements do not reproduce browser startup, and browser timings can differ.
 
 ## How I built the tool
 

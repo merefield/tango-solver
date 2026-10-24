@@ -10,7 +10,19 @@ const solver = html.slice(html.indexOf('// SOLVER'), html.indexOf('// UI'));
 function solverContext(rows, cols, clues, equal = [], different = []) {
   const context = vm.createContext({ ROWS: rows, COLS: cols, cellClues: clues,
     eqEdges: new Set(equal), diffEdges: new Set(different) });
-  vm.runInContext(`${helpers}\n${solver}`, context);
+  vm.runInContext(`${helpers}\n${solver}
+    function inspectSupports(assign, lines) {
+      const supported=Array(assign.length).fill(3);
+      for(const line of lines) {
+        if(!lineSupport(assign,line)) return null;
+        for(let i=0;i<line.positions.length;i++) {
+          supported[line.positions[i]]&=((line.zeros>>i)&1)|(((line.ones>>i)&1)<<1);
+          if(supported[line.positions[i]]===0) return null;
+        }
+      }
+      return supported;
+    }
+  `, context);
   return context;
 }
 
@@ -91,6 +103,47 @@ test('reports distinguish forced deductions from trial placements', () => {
   assert.equal(branching.backtracks, 0);
 });
 
+test('queued deductions cascade through intersecting lines on rectangular boards', () => {
+  for (const [rows, cols] of [[4, 6], [6, 4], [6, 6], [8, 8]]) {
+    const pattern = length => length === 4 ? [0, 0, 1, 1]
+      : length === 6 ? [0, 0, 1, 0, 1, 1] : [0, 0, 1, 1, 0, 0, 1, 1];
+    const rowPattern = pattern(rows), colPattern = pattern(cols);
+    const board = Array.from({ length: rows * cols }, (_, i) =>
+      rowPattern[Math.floor(i / cols)] ^ colPattern[i % cols]);
+    const equal = [], different = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      for (const [dr, dc] of [[0, 1], [1, 0]]) {
+        if (r + dr >= rows || c + dc >= cols) continue;
+        const edge = (r + c) % 2 ? `${r},${c}|${r + dr},${c + dc}`
+          : `${r + dr},${c + dc}|${r},${c}`;
+        (board[r * cols + c] === board[(r + dr) * cols + c + dc] ? equal : different).push(edge);
+      }
+    }
+    const clues = Array(rows * cols).fill(-1);
+    clues[0] = board[0];
+    const result = run(rows, cols, clues, equal, different, 'propagation');
+    assert.deepEqual(result.solution, board);
+    assert.ok(legal(result.solution, rows, cols, clues, equal, different));
+    assert.equal(result.forcedPlacements, rows * cols - 1);
+    assert.equal(result.guesses, 0);
+    assert.equal(result.backtracks, 0);
+    clues[clues.length - 1] = 1 - board[board.length - 1];
+    const contradictory = run(rows, cols, clues, equal, different, 'propagation');
+    assert.equal(contradictory.solution, null);
+    assert.equal(contradictory.guesses, 0);
+  }
+});
+
+test('queued propagation detects a contradiction in each guessed branch', () => {
+  const equal = ['0,0|0,1', '0,1|1,1', '1,1|1,0'];
+  const different = ['1,0|0,0'];
+  const result = run(4, 4, Array(16).fill(-1), equal, different, 'propagation');
+  assert.equal(result.solution, null);
+  assert.equal(result.guesses, 2);
+  assert.equal(result.backtracks, 2);
+  assert.ok(result.forcedPlacements > 0);
+});
+
 test('reports count failed branches and reset counters for each solve', () => {
   const clues = Array(36).fill(-1);
   clues[2] = 0;
@@ -165,7 +218,7 @@ test('end-pair deductions respect line length, direction, symbol, and rectangula
         clues[line[0]] = clues[line[1]] = value;
         const context = solverContext(rows, cols, clues);
         const supported = JSON.parse(vm.runInContext(
-          'JSON.stringify(lineSupports(cellClues,puzzleLines()))', context));
+          'JSON.stringify(inspectSupports(cellClues,puzzleLines()))', context));
         assert.ok(supported);
         assert.equal(supported[line[2]], 1 << (1 - value));
         // The far endpoint is forced for lengths 4 and 6, but not for length 8.
@@ -186,12 +239,12 @@ test('whole-line deductions combine edge clues with balance and adjacency', () =
   clues[0] = 0;
   const context = solverContext(6, 6, clues, ['0,1|0,2']);
   const supported = JSON.parse(vm.runInContext(
-    'JSON.stringify(lineSupports(cellClues,puzzleLines()))', context));
+    'JSON.stringify(inspectSupports(cellClues,puzzleLines()))', context));
   assert.equal(supported[1], 2);
   assert.equal(supported[2], 2);
   assert.equal(supported[3], 1);
   const impossible = solverContext(6, 6, Array(36).fill(-1), ['0,0|0,1', '0,1|0,2']);
-  assert.equal(vm.runInContext('lineSupports(cellClues,puzzleLines())', impossible), null);
+  assert.equal(vm.runInContext('inspectSupports(cellClues,puzzleLines())', impossible), null);
 });
 
 test('cached line patterns match exhaustive balanced, triple-free lines', () => {
@@ -205,7 +258,7 @@ test('cached line patterns match exhaustive balanced, triple-free lines', () => 
       expected.push(values.join(''));
     }
     context.length = length;
-    const actual = JSON.parse(vm.runInContext('JSON.stringify(linePatterns(length))', context));
+    const actual = JSON.parse(vm.runInContext('JSON.stringify(linePatternMasks(length).map(mask=>Array.from({length},(_,i)=>(mask>>i)&1)))', context));
     assert.deepEqual(actual.map(values => values.join('')).sort(), expected.sort());
   }
 });
@@ -214,7 +267,7 @@ test('line-support cache handles replaced symbols, contradictions, and rollback'
   const context = solverContext(6, 6, Array(36).fill(-1));
   vm.runInContext('const lines=puzzleLines();', context);
   function supports() {
-    return JSON.parse(vm.runInContext('JSON.stringify(lineSupports(cellClues,lines))', context));
+    return JSON.parse(vm.runInContext('JSON.stringify(inspectSupports(cellClues,lines))', context));
   }
   const empty = supports();
   vm.runInContext('cellClues[0]=cellClues[1]=0;', context);
