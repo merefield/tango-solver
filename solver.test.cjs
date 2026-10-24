@@ -48,7 +48,8 @@ function legal(board, rows, cols, clues, equal = [], different = []) {
 for (const strategy of ['backtracking', 'propagation']) {
   test(`${strategy}: validates complete clues and odd board sizes`, () => {
     const valid = run(2, 2, [0, 1, 1, 0], [], [], strategy);
-    assert.deepEqual(valid, { solution: [0, 1, 1, 0], steps: 0 });
+    assert.deepEqual(valid, { solution: [0, 1, 1, 0], steps: 0,
+      forcedPlacements: 0, guesses: 0, backtracks: 0 });
     assert.equal(run(2, 2, [1, 1, 1, 1], [], [], strategy).solution, null);
     assert.equal(run(2, 3, Array(6).fill(-1), [], [], strategy).solution, null);
     assert.equal(run(2, 2, [0, 1, 1, 0], ['0,0|0,1'], [], strategy).solution, null);
@@ -73,6 +74,44 @@ for (const strategy of ['backtracking', 'propagation']) {
     }
   });
 }
+
+test('reports distinguish forced deductions from trial placements', () => {
+  const clues = [0, -1, -1, -1];
+  const backtracking = run(2, 2, clues);
+  assert.equal(backtracking.forcedPlacements, 0);
+  assert.equal(backtracking.guesses, 3);
+  assert.equal(backtracking.backtracks, 0);
+  const propagation = run(2, 2, clues, [], [], 'propagation');
+  assert.equal(propagation.forcedPlacements, 3);
+  assert.equal(propagation.guesses, 0);
+  assert.equal(propagation.backtracks, 0);
+  const branching = run(2, 2, Array(4).fill(-1), [], [], 'propagation');
+  assert.equal(branching.forcedPlacements, 3);
+  assert.equal(branching.guesses, 1);
+  assert.equal(branching.backtracks, 0);
+});
+
+test('reports count failed branches and reset counters for each solve', () => {
+  const clues = Array(36).fill(-1);
+  clues[2] = 0;
+  const equal = ['0,0|1,0', '1,0|1,1', '1,1|0,1'];
+  for (const strategy of ['backtracking', 'propagation']) {
+    const context = solverContext(6, 6, clues, equal);
+    context.strategy = strategy;
+    const first = JSON.parse(vm.runInContext('JSON.stringify(solvePuzzle(strategy))', context));
+    assert.ok(legal(first.solution, 6, 6, clues, equal));
+    assert.ok(first.guesses > 0);
+    assert.ok(first.backtracks > 0);
+    assert.ok(first.guesses >= first.backtracks);
+    if (strategy === 'backtracking') assert.equal(first.guesses - first.backtracks, 35);
+    const second = JSON.parse(vm.runInContext('JSON.stringify(solvePuzzle(strategy))', context));
+    assert.deepEqual(second, first);
+  }
+  const failed = run(2, 2, Array(4).fill(-1), ['0,0|0,1']);
+  assert.equal(failed.solution, null);
+  assert.ok(failed.guesses > 0);
+  assert.equal(failed.backtracks, failed.guesses);
+});
 
 test('both strategies agree with exhaustive 4x4 solutions on varied setups', () => {
   const empty = Array(16).fill(-1);

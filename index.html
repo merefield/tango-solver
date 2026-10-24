@@ -290,9 +290,11 @@ function solveRec(assign, stats, pos=0){
   for(let value=0;value<=1;value++){
     stats.steps++;
     if(!valid(assign,pos,value)) continue;
+    stats.guesses++;
     assign[pos]=value;
     const result=solveRec(assign,stats,pos+1);
     if(result) return result;
+    stats.backtracks++;
     assign[pos]=-1;
   }
   return null;
@@ -370,6 +372,7 @@ function solveWithPropagation(assign, stats, lines){
       const values=candidates(assign,pos,stats,supported[pos]);
       if(values.length===0) return null;
       if(values.length===1){
+        stats.forcedPlacements++;
         assign[pos]=values[0];
         changed=true;
       } else if(next===null||values.length<next.values.length){
@@ -381,16 +384,18 @@ function solveWithPropagation(assign, stats, lines){
   if(next===null) return assign;
   // Minimum remaining values; keep deductions isolated within each branch.
   for(const value of next.values){
+    stats.guesses++;
     const branch=assign.slice();
     branch[next.pos]=value;
     const result=solveWithPropagation(branch,stats,lines);
     if(result) return result;
+    stats.backtracks++;
   }
   return null;
 }
 
 function solvePuzzle(strategy){
-  const stats={steps:0};
+  const stats={steps:0,forcedPlacements:0,guesses:0,backtracks:0};
   const assign=cellClues.slice();
   // Validate supplied clues too, including already-complete boards.
   if(ROWS%2!==0||COLS%2!==0) return {solution:null,...stats};
@@ -446,9 +451,18 @@ startBtn.addEventListener('click', () => {
     const dt=(performance.now()-t0)/1000;
     const entry=document.createElement('div');
     entry.className='solve-result';
-    for(const text of [`Time: ${dt.toFixed(3)} s`, `Steps: ${result.steps}`, `Strategy: ${strategyName}`]){
+    const metrics=[
+      [`Time: ${dt.toFixed(3)} s`, 'Time spent solving, excluding animation.'],
+      [`Steps: ${result.steps}`, 'Candidate symbols checked against the rules.'],
+      [`Strategy: ${strategyName}`, 'Strategy used for this run.'],
+      [`Forced placements: ${result.forcedPlacements}`, 'Cells filled by propagation with only one remaining candidate.'],
+      [`Guesses: ${result.guesses}`, 'Trial placements made by search, including failed branches.'],
+      [`Backtracks: ${result.backtracks}`, 'Trial branches abandoned after failing to find a solution.']
+    ];
+    for(const [text,description] of metrics){
       const item=document.createElement('span');
       item.textContent=text;
+      item.title=description;
       entry.append(item);
     }
     timerEl.append(entry);

@@ -32,11 +32,20 @@ Choose a strategy before pressing **Start**:
   Each line uses its own length, including on rectangular boards. If deductions
   stall, it branches on a cell with the fewest remaining choices.
 
-The result reports `Time`, `Steps`, and the strategy used. A step is one candidate
+The result reports `Time`, `Steps`, the strategy used, `Forced placements`,
+`Guesses`, and `Backtracks`. A step is one candidate
 symbol checked against the rules, including failed choices and propagation checks.
 Filtering line patterns is additional work that is not counted as extra steps.
 Time measures solving only, excluding the optional solution animation. Both
 strategies stop at the first solution; they do not check uniqueness.
+
+Forced placements count cells filled by propagation when only one candidate
+remains. Guesses count trial placements made by search; backtracks count those
+trial branches abandoned after failing to find a solution. Immediately rejected
+candidates count only as steps. Plain backtracking makes trial placements without
+a deduction phase, so its forced-placement count is zero. All counts include work
+in unsuccessful branches and exclude the initial Build clues. Each run starts
+with fresh counters.
 
 Each solve appends a row to the results history. **Clear** on the Solve tab removes
 the solution and cancels any pending animation, preserving the history and all

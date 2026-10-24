@@ -72,6 +72,9 @@ test('each strategy reports metrics, and Solve Clear preserves the Build setup',
     assert.match(metrics[0], /^Time: \d+\.\d{3} s$/);
     assert.match(metrics[1], /^Steps: [1-9]\d*$/);
     assert.equal(metrics[2], `Strategy: ${p.element('strategySelect').selectedOptions[0].textContent}`);
+    assert.equal(metrics[3], `Forced placements: ${strategy === 'propagation' ? 3 : 0}`);
+    assert.equal(metrics[4], `Guesses: ${strategy === 'propagation' ? 0 : 3}`);
+    assert.equal(metrics[5], 'Backtracks: 0');
     p.element('clearSolutionBtn').trigger();
     assert.equal(p.evaluate('solution'), null);
     assert.equal(p.evaluate('JSON.stringify(cellClues)'), '[0,-1,-1,-1]');
@@ -87,6 +90,7 @@ test('repeated solves append history and keep the strategy recorded for each run
   p.element('startBtn').trigger();
   p.tick();
   const firstEntry = p.element('timer').children[0];
+  const firstMetrics = firstEntry.children.map(child => child.textContent);
   p.element('clearSolutionBtn').trigger();
   p.element('strategySelect').value = 'propagation';
   p.element('startBtn').trigger();
@@ -99,6 +103,9 @@ test('repeated solves append history and keep the strategy recorded for each run
   p.element('startBtn').trigger();
   p.tick();
   assert.equal(p.element('timer').children.length, 3);
+  assert.deepEqual(firstEntry.children.map(child => child.textContent), firstMetrics);
+  assert.deepEqual(p.element('timer').children[1].children.slice(3).map(child => child.textContent),
+    p.element('timer').children[2].children.slice(3).map(child => child.textContent));
 });
 
 test('entering Build clears history and pending callbacks; a refreshed page starts empty', () => {
