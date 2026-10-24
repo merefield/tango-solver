@@ -7,10 +7,16 @@ const html = fs.readFileSync(`${__dirname}/index.html`, 'utf8');
 const helpers = html.slice(html.indexOf('function edgeKey'), html.indexOf('// DRAWING'));
 const solver = html.slice(html.indexOf('const dirs ='), html.indexOf('// UI'));
 
-function run(rows, cols, clues, equal = [], different = [], strategy = 'backtracking') {
+function solverContext(rows, cols, clues, equal = [], different = []) {
   const context = vm.createContext({ ROWS: rows, COLS: cols, cellClues: clues,
-    eqEdges: new Set(equal), diffEdges: new Set(different), strategy });
+    eqEdges: new Set(equal), diffEdges: new Set(different) });
   vm.runInContext(`${helpers}\n${solver}`, context);
+  return context;
+}
+
+function run(rows, cols, clues, equal = [], different = [], strategy = 'backtracking') {
+  const context = solverContext(rows, cols, clues, equal, different);
+  context.strategy = strategy;
   return JSON.parse(vm.runInContext('JSON.stringify(solvePuzzle(strategy))', context));
 }
 
@@ -105,4 +111,62 @@ test('candidate checks preserve existing assignments, including rejected values'
   vm.runInContext(`${helpers}\n${solver}`, context);
   assert.equal(vm.runInContext('valid(cellClues, 0, 1)', context), false);
   assert.deepEqual(context.cellClues, [0, 1, 1, 0]);
+});
+
+test('end-pair deductions respect line length, direction, symbol, and rectangular boards', () => {
+  for (const [rows, cols] of [[6, 6], [4, 6], [6, 4], [8, 8]]) {
+    const directions = [
+      Array.from({ length: cols }, (_, c) => c),
+      Array.from({ length: rows }, (_, r) => r * cols)
+    ];
+    for (const positions of directions) for (const reverse of [false, true]) {
+      const line = reverse ? positions.slice().reverse() : positions;
+      for (const value of [0, 1]) {
+        const clues = Array(rows * cols).fill(-1);
+        clues[line[0]] = clues[line[1]] = value;
+        const context = solverContext(rows, cols, clues);
+        const supported = JSON.parse(vm.runInContext(
+          'JSON.stringify(lineSupports(cellClues,puzzleLines()))', context));
+        assert.ok(supported);
+        assert.equal(supported[line[2]], 1 << (1 - value));
+        // The far endpoint is forced for lengths 4 and 6, but not for length 8.
+        assert.equal(supported[line.at(-1)], line.length === 8 ? 3 : 1 << (1 - value));
+        if (line.length === 6) {
+          context.endpoint = line.at(-1);
+          context.value = value;
+          // The old local test alone could not reject this endpoint value.
+          assert.equal(vm.runInContext('valid(cellClues,endpoint,value)', context), true);
+        }
+      }
+    }
+  }
+});
+
+test('whole-line deductions combine edge clues with balance and adjacency', () => {
+  const clues = Array(36).fill(-1);
+  clues[0] = 0;
+  const context = solverContext(6, 6, clues, ['0,1|0,2']);
+  const supported = JSON.parse(vm.runInContext(
+    'JSON.stringify(lineSupports(cellClues,puzzleLines()))', context));
+  assert.equal(supported[1], 2);
+  assert.equal(supported[2], 2);
+  assert.equal(supported[3], 1);
+  const impossible = solverContext(6, 6, Array(36).fill(-1), ['0,0|0,1', '0,1|0,2']);
+  assert.equal(vm.runInContext('lineSupports(cellClues,puzzleLines())', impossible), null);
+});
+
+test('cached line patterns match exhaustive balanced, triple-free lines', () => {
+  const context = solverContext(8, 8, Array(64).fill(-1));
+  for (const length of [2, 4, 6, 8]) {
+    const expected = [];
+    for (let mask = 0; mask < 2 ** length; mask++) {
+      const values = Array.from({ length }, (_, i) => (mask >> i) & 1);
+      if (values.reduce((a, b) => a + b, 0) !== length / 2) continue;
+      if (values.some((v, i) => i >= 2 && values[i - 1] === v && values[i - 2] === v)) continue;
+      expected.push(values.join(''));
+    }
+    context.length = length;
+    const actual = JSON.parse(vm.runInContext('JSON.stringify(linePatterns(length))', context));
+    assert.deepEqual(actual.map(values => values.join('')).sort(), expected.sort());
+  }
 });

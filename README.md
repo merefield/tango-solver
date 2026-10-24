@@ -26,17 +26,23 @@ Choose a strategy before pressing **Start**:
 
 * **Backtracking** tries cells in row order and rejects choices that break a rule.
 * **Constraint propagation + backtracking** repeatedly fills cells with only one
-  legal symbol, then branches on a cell with the fewest remaining choices if needed.
+  legal symbol. It checks complete balanced row and column patterns with no three
+  consecutive matching symbols, including `=` / `×` edges. This captures deductions
+  such as a matching pair at one end forcing the opposite end of a six-cell line.
+  Each line uses its own length, including on rectangular boards. If deductions
+  stall, it branches on a cell with the fewest remaining choices.
 
 The result reports `Time`, `Steps`, and the strategy used. A step is one candidate
 symbol checked against the rules, including failed choices and propagation checks.
+Filtering line patterns is additional work that is not counted as extra steps.
 Time measures solving only, excluding the optional solution animation. Both
 strategies stop at the first solution; they do not check uniqueness.
 
-**Clear** on the Solve tab removes the solution and its results, preserving all
-Build clues. It also cancels any pending solution animation. **Clear** on the
-Build tab clears the entire puzzle. Both grid dimensions must be even to allow
-equal numbers of suns and moons in every row and column.
+Each solve appends a row to the results history. **Clear** on the Solve tab removes
+the solution and cancels any pending animation, preserving the history and all
+Build clues. The history resets when you switch to **Build** or refresh the page.
+**Clear** on the Build tab clears the entire puzzle. Both grid dimensions must be
+even to allow equal numbers of suns and moons in every row and column.
 
 Run the automated checks with `node --test *.test.cjs` (Node.js 18 or later).
 

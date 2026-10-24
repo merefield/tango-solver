@@ -20,7 +20,8 @@
   input[type="number"], select {width:4rem;font-size:2.5rem;padding:0.25rem;text-align:center}
  label.size{display:flex;align-items:center;gap:0.3rem}
  #strategySelect{width:100%;font:inherit;text-align:left;box-sizing:border-box}
- #timer{display:flex;flex-wrap:wrap;column-gap:1rem}
+ #timer{display:flex;flex-direction:column;gap:0.5rem}
+ .solve-result{display:flex;flex-wrap:wrap;column-gap:1rem}
  /* Footer styling */
  #footer {
    margin: 0 auto;
@@ -274,11 +275,11 @@ function valid(assign, pos, val){
 }
 
 // Count the same work for both strategies: each candidate symbol checked.
-function candidates(assign, pos, stats){
+function candidates(assign, pos, stats, supported=3){
   const values = [];
   for(let value=0;value<=1;value++){
     stats.steps++;
-    if(valid(assign,pos,value)) values.push(value);
+    if((supported & (1<<value))&&valid(assign,pos,value)) values.push(value);
   }
   return values;
 }
@@ -297,15 +298,76 @@ function solveRec(assign, stats, pos=0){
   return null;
 }
 
-function solveWithPropagation(assign, stats){
+// Cache all balanced, triple-free patterns for each supported line length.
+const patternCache=new Map();
+function linePatterns(length){
+  if(patternCache.has(length)) return patternCache.get(length);
+  const patterns=[];
+  function extend(prefix, ones){
+    if(prefix.length===length){
+      patterns.push(prefix);
+      return;
+    }
+    for(let value=0;value<=1;value++){
+      const nextOnes=ones+value;
+      if(nextOnes>length/2||prefix.length+1-nextOnes>length/2) continue;
+      if(prefix.length>=2&&prefix.at(-1)===value&&prefix.at(-2)===value) continue;
+      extend([...prefix,value],nextOnes);
+    }
+  }
+  extend([],0);
+  patternCache.set(length,patterns);
+  return patterns;
+}
+
+function puzzleLines(){
+  const lines=[];
+  function addLine(positions){
+    const edges=positions.slice(1).map((pos,i)=>{
+      const previous=positions[i];
+      const r1=Math.floor(previous/COLS), c1=previous%COLS;
+      const r2=Math.floor(pos/COLS), c2=pos%COLS;
+      return {equal:hasEq(r1,c1,r2,c2), different:hasDiff(r1,c1,r2,c2)};
+    });
+    const patterns=linePatterns(positions.length).filter(pattern=>edges.every((edge,i)=>
+      (!edge.equal||pattern[i]===pattern[i+1])&&
+      (!edge.different||pattern[i]!==pattern[i+1])
+    ));
+    lines.push({positions,patterns});
+  }
+  for(let r=0;r<ROWS;r++) addLine(Array.from({length:COLS},(_,c)=>r*COLS+c));
+  for(let c=0;c<COLS;c++) addLine(Array.from({length:ROWS},(_,r)=>r*COLS+c));
+  return lines;
+}
+
+function lineSupports(assign, lines){
+  // Bits 1 and 2 represent a supported moon and sun, respectively.
+  const supported=new Array(assign.length).fill(3);
+  for(const {positions,patterns} of lines){
+    const masks=new Array(positions.length).fill(0);
+    for(const pattern of patterns){
+      if(!positions.every((pos,i)=>assign[pos]===-1||assign[pos]===pattern[i])) continue;
+      for(let i=0;i<positions.length;i++) masks[i]|=1<<pattern[i];
+    }
+    for(let i=0;i<positions.length;i++){
+      supported[positions[i]]&=masks[i];
+      if(supported[positions[i]]===0) return null;
+    }
+  }
+  return supported;
+}
+
+function solveWithPropagation(assign, stats, lines){
   let next;
   // Repeatedly fill cells with only one legal value before making a guess.
   while(true){
     let changed=false;
     next=null;
+    const supported=lineSupports(assign,lines);
+    if(supported===null) return null;
     for(let pos=0;pos<assign.length;pos++){
       if(assign[pos]!==-1) continue;
-      const values=candidates(assign,pos,stats);
+      const values=candidates(assign,pos,stats,supported[pos]);
       if(values.length===0) return null;
       if(values.length===1){
         assign[pos]=values[0];
@@ -321,7 +383,7 @@ function solveWithPropagation(assign, stats){
   for(const value of next.values){
     const branch=assign.slice();
     branch[next.pos]=value;
-    const result=solveWithPropagation(branch,stats);
+    const result=solveWithPropagation(branch,stats,lines);
     if(result) return result;
   }
   return null;
@@ -336,7 +398,7 @@ function solvePuzzle(strategy){
     if(assign[pos]!==-1&&!valid(assign,pos,assign[pos])) return {solution:null,...stats};
   }
   const solved=strategy==='propagation'
-    ? solveWithPropagation(assign,stats)
+    ? solveWithPropagation(assign,stats,puzzleLines())
     : solveRec(assign,stats);
   return {solution:solved,...stats};
 }
@@ -363,7 +425,6 @@ function clearSolution(){
   pendingTimers.forEach(timer=>clearTimeout(timer));
   pendingTimers.clear();
   solution=null;
-  timerEl.replaceChildren();
   statusEl.textContent='Idle';
   startBtn.disabled=false;
   strategySelect.disabled=false;
@@ -383,11 +444,14 @@ startBtn.addEventListener('click', () => {
     const t0=performance.now();
     const result=solvePuzzle(strategy);
     const dt=(performance.now()-t0)/1000;
+    const entry=document.createElement('div');
+    entry.className='solve-result';
     for(const text of [`Time: ${dt.toFixed(3)} s`, `Steps: ${result.steps}`, `Strategy: ${strategyName}`]){
       const item=document.createElement('span');
       item.textContent=text;
-      timerEl.append(item);
+      entry.append(item);
     }
+    timerEl.append(entry);
     if(!result.solution){
       statusEl.textContent=ROWS%2||COLS%2
         ? 'No solution: rows and columns must both be even.'
@@ -443,7 +507,17 @@ colsInp.addEventListener('change', changeSize);
 rowsInp.addEventListener('change', changeSize);
 
 // tabs
-document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>{ document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); document.querySelectorAll('.tab-content').forEach(p=>p.classList.remove('active')); document.getElementById(btn.dataset.tab).classList.add('active'); drawBoard(); }));
+document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>{
+  if(btn.dataset.tab==='buildTab'){
+    clearSolution();
+    timerEl.replaceChildren();
+  }
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(p=>p.classList.remove('active'));
+  document.getElementById(btn.dataset.tab).classList.add('active');
+  drawBoard();
+}));
 
 // init
 drawBoard();
