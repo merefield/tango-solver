@@ -5,7 +5,7 @@ const { test } = require('node:test');
 
 const html = fs.readFileSync(`${__dirname}/index.html`, 'utf8');
 const helpers = html.slice(html.indexOf('function edgeKey'), html.indexOf('// DRAWING'));
-const solver = html.slice(html.indexOf('const dirs ='), html.indexOf('// UI'));
+const solver = html.slice(html.indexOf('// SOLVER'), html.indexOf('// UI'));
 
 function solverContext(rows, cols, clues, equal = [], different = []) {
   const context = vm.createContext({ ROWS: rows, COLS: cols, cellClues: clues,
@@ -207,5 +207,55 @@ test('cached line patterns match exhaustive balanced, triple-free lines', () => 
     context.length = length;
     const actual = JSON.parse(vm.runInContext('JSON.stringify(linePatterns(length))', context));
     assert.deepEqual(actual.map(values => values.join('')).sort(), expected.sort());
+  }
+});
+
+test('line-support cache handles replaced symbols, contradictions, and rollback', () => {
+  const context = solverContext(6, 6, Array(36).fill(-1));
+  vm.runInContext('const lines=puzzleLines();', context);
+  function supports() {
+    return JSON.parse(vm.runInContext('JSON.stringify(lineSupports(cellClues,lines))', context));
+  }
+  const empty = supports();
+  vm.runInContext('cellClues[0]=cellClues[1]=0;', context);
+  assert.equal(supports()[5], 2);
+  // Same known positions, different values must invalidate the cached supports.
+  vm.runInContext('cellClues[0]=cellClues[1]=1;', context);
+  assert.equal(supports()[5], 1);
+  vm.runInContext('cellClues[2]=1;', context);
+  assert.equal(supports(), null);
+  vm.runInContext('cellClues.fill(-1);', context);
+  assert.deepEqual(supports(), empty);
+});
+
+test('rule tables follow edge edits and board dimensions between solves', () => {
+  const context = solverContext(4, 6, Array(24).fill(-1));
+  assert.ok(vm.runInContext("solvePuzzle('backtracking').solution!==null", context));
+  vm.runInContext("cellClues=[0,1,0,1,0,1,1,0,1,0,1,0,0,1,0,1,0,1,1,0,1,0,1,0]; eqEdges.add('0,0|0,1');", context);
+  assert.equal(vm.runInContext("solvePuzzle('backtracking').solution", context), null);
+  vm.runInContext("eqEdges.clear(); diffEdges.add('0,1|0,0');", context);
+  assert.ok(vm.runInContext("solvePuzzle('propagation').solution!==null", context));
+  // Keep the same cell count while swapping dimensions to catch stale topology.
+  vm.runInContext('ROWS=6; COLS=4; cellClues=Array(24).fill(-1);', context);
+  const solution = JSON.parse(vm.runInContext("JSON.stringify(solvePuzzle('backtracking').solution)", context));
+  assert.ok(legal(solution, 6, 4, Array(24).fill(-1), [], ['0,1|0,0']));
+});
+
+test('incremental counts stay correct through placements, replacements, and undo', () => {
+  const context = solverContext(4, 6, Array(24).fill(-1));
+  vm.runInContext('const rules=createRules(cellClues);', context);
+  for (const [pos, value] of [[0, 0], [1, 1], [7, 1], [0, 1], [1, -1], [7, -1], [0, -1]]) {
+    context.pos = pos;
+    context.value = value;
+    vm.runInContext('setValue(cellClues,pos,value,rules)', context);
+    const state = JSON.parse(vm.runInContext('JSON.stringify({clues:cellClues,rows:rules.rowCounts,cols:rules.colCounts})', context));
+    const expectedRows = Array(8).fill(0), expectedCols = Array(12).fill(0);
+    state.clues.forEach((v, i) => {
+      if (v === -1) return;
+      expectedRows[2 * Math.floor(i / 6) + v]++;
+      expectedCols[2 * (i % 6) + v]++;
+    });
+    assert.deepEqual(state.rows, expectedRows);
+    assert.deepEqual(state.cols, expectedCols);
   }
 });

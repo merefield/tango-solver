@@ -230,72 +230,101 @@ canvas.addEventListener('click', e => {
 });
 
 // SOLVER
-const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
-function valid(assign, pos, val){
-  const previous = assign[pos];
-  assign[pos] = val;
-  try {
-    const r = Math.floor(pos/COLS), c = pos%COLS;
-    // Reject three consecutive matching symbols through this cell.
-    for(const [dr,dc] of [[0,1],[1,0]]){
-      let cnt = 1;
-      for(const direction of [-1,1]){
-        for(let i=1;i<=2;i++){
-          const nr=r+dr*i*direction, nc=c+dc*i*direction;
-          if(nr<0||nr>=ROWS||nc<0||nc>=COLS||assign[nr*COLS+nc]!==val) break;
-          cnt++;
+let topologyCache=null;
+function createRules(assign){
+  if(!topologyCache||topologyCache.rows!==ROWS||topologyCache.cols!==COLS){
+    const cells=Array.from({length:ROWS*COLS},(_,pos)=>{
+      const r=Math.floor(pos/COLS), c=pos%COLS;
+      const triples=[];
+      for(const [coordinate,length,stride] of [[c,COLS,1],[r,ROWS,COLS]]){
+        for(let start=Math.max(0,coordinate-2);start<=Math.min(coordinate,length-3);start++){
+          const pair=[];
+          for(let i=0;i<3;i++){
+            const other=pos+(start+i-coordinate)*stride;
+            if(other!==pos) pair.push(other);
+          }
+          triples.push(pair);
         }
       }
-      if(cnt>2) return false;
+      return {r,c,triples};
+    });
+    topologyCache={rows:ROWS,cols:COLS,cells};
+  }
+  const edges=Array.from({length:assign.length},()=>[]);
+  for(const [collection,relation] of [[eqEdges,0],[diffEdges,1]]){
+    for(const key of collection){
+      const [a,b]=key.split('|').map(cell=>{
+        const [r,c]=cell.split(',').map(Number);
+        return r*COLS+c;
+      });
+      edges[a].push([b,relation]);
+      edges[b].push([a,relation]);
     }
-    // On even-sized boards, these limits also guarantee balanced full lines.
-    for(const [length, index] of [
-      [COLS, j => r*COLS+j],
-      [ROWS, i => i*COLS+c]
-    ]){
-      let zeros=0, ones=0;
-      for(let i=0;i<length;i++){
-        if(assign[index(i)]===0) zeros++;
-        if(assign[index(i)]===1) ones++;
-      }
-      if(zeros>length/2||ones>length/2) return false;
-    }
-    for(const [dr,dc] of dirs){
-      const nr=r+dr, nc=c+dc;
-      if(nr<0||nr>=ROWS||nc<0||nc>=COLS) continue;
-      const neighbour=assign[nr*COLS+nc];
-      if(neighbour===-1) continue;
-      if(hasEq(r,c,nr,nc)&&neighbour!==val) return false;
-      if(hasDiff(r,c,nr,nc)&&neighbour===val) return false;
-    }
-    return true;
-  } finally {
-    assign[pos] = previous;
+  }
+  const rowCounts=new Array(ROWS*2).fill(0), colCounts=new Array(COLS*2).fill(0);
+  for(let pos=0;pos<assign.length;pos++){
+    const value=assign[pos];
+    if(value===-1) continue;
+    const {r,c}=topologyCache.cells[pos];
+    rowCounts[2*r+value]++;
+    colCounts[2*c+value]++;
+  }
+  return {cells:topologyCache.cells,edges,rowCounts,colCounts};
+}
+
+function valid(assign, pos, val, rules=createRules(assign)){
+  const {r,c,triples}=rules.cells[pos];
+  const previous=assign[pos];
+  for(let value=0;value<=1;value++){
+    const change=(val===value?1:0)-(previous===value?1:0);
+    if(rules.rowCounts[2*r+value]+change>COLS/2||
+       rules.colCounts[2*c+value]+change>ROWS/2) return false;
+  }
+  for(const [a,b] of triples){
+    if(assign[a]===val&&assign[b]===val) return false;
+  }
+  for(const [other,relation] of rules.edges[pos]){
+    if(assign[other]!==-1&&(assign[other]^val)!==relation) return false;
+  }
+  return true;
+}
+
+function setValue(assign, pos, value, rules){
+  const previous=assign[pos];
+  const {r,c}=rules.cells[pos];
+  if(previous!==-1){
+    rules.rowCounts[2*r+previous]--;
+    rules.colCounts[2*c+previous]--;
+  }
+  assign[pos]=value;
+  if(value!==-1){
+    rules.rowCounts[2*r+value]++;
+    rules.colCounts[2*c+value]++;
   }
 }
 
 // Count the same work for both strategies: each candidate symbol checked.
-function candidates(assign, pos, stats, supported=3){
+function candidates(assign, pos, stats, supported=3, rules=createRules(assign)){
   const values = [];
   for(let value=0;value<=1;value++){
     stats.steps++;
-    if((supported & (1<<value))&&valid(assign,pos,value)) values.push(value);
+    if((supported & (1<<value))&&valid(assign,pos,value,rules)) values.push(value);
   }
   return values;
 }
 
-function solveRec(assign, stats, pos=0){
+function solveRec(assign, stats, pos=0, rules=createRules(assign)){
+  while(pos<assign.length&&assign[pos]!==-1) pos++;
   if(pos===assign.length) return assign;
-  if(assign[pos]!==-1) return solveRec(assign,stats,pos+1);
   for(let value=0;value<=1;value++){
     stats.steps++;
-    if(!valid(assign,pos,value)) continue;
+    if(!valid(assign,pos,value,rules)) continue;
     stats.guesses++;
-    assign[pos]=value;
-    const result=solveRec(assign,stats,pos+1);
+    setValue(assign,pos,value,rules);
+    const result=solveRec(assign,stats,pos+1,rules);
     if(result) return result;
     stats.backtracks++;
-    assign[pos]=-1;
+    setValue(assign,pos,-1,rules);
   }
   return null;
 }
@@ -322,20 +351,33 @@ function linePatterns(length){
   return patterns;
 }
 
+const patternMaskCache=new Map();
+function linePatternMasks(length){
+  if(!patternMaskCache.has(length)){
+    patternMaskCache.set(length,linePatterns(length).map(pattern=>
+      pattern.reduce((mask,value,i)=>mask|(value<<i),0)
+    ));
+  }
+  return patternMaskCache.get(length);
+}
+
 function puzzleLines(){
   const lines=[];
   function addLine(positions){
-    const edges=positions.slice(1).map((pos,i)=>{
-      const previous=positions[i];
+    let equalMask=0, differentMask=0;
+    for(let i=1;i<positions.length;i++){
+      const previous=positions[i-1], pos=positions[i];
       const r1=Math.floor(previous/COLS), c1=previous%COLS;
       const r2=Math.floor(pos/COLS), c2=pos%COLS;
-      return {equal:hasEq(r1,c1,r2,c2), different:hasDiff(r1,c1,r2,c2)};
+      if(hasEq(r1,c1,r2,c2)) equalMask|=1<<(i-1);
+      if(hasDiff(r1,c1,r2,c2)) differentMask|=1<<(i-1);
+    }
+    // One bit per cell; adjacent XOR bits identify different symbols.
+    const patterns=linePatternMasks(positions.length).filter(pattern=>{
+      const changes=pattern^(pattern>>1);
+      return (changes&equalMask)===0&&(changes&differentMask)===differentMask;
     });
-    const patterns=linePatterns(positions.length).filter(pattern=>edges.every((edge,i)=>
-      (!edge.equal||pattern[i]===pattern[i+1])&&
-      (!edge.different||pattern[i]!==pattern[i+1])
-    ));
-    lines.push({positions,patterns});
+    lines.push({positions,patterns,fullMask:(1<<positions.length)-1});
   }
   for(let r=0;r<ROWS;r++) addLine(Array.from({length:COLS},(_,c)=>r*COLS+c));
   for(let c=0;c<COLS;c++) addLine(Array.from({length:ROWS},(_,r)=>r*COLS+c));
@@ -345,21 +387,38 @@ function puzzleLines(){
 function lineSupports(assign, lines){
   // Bits 1 and 2 represent a supported moon and sun, respectively.
   const supported=new Array(assign.length).fill(3);
-  for(const {positions,patterns} of lines){
-    const masks=new Array(positions.length).fill(0);
-    for(const pattern of patterns){
-      if(!positions.every((pos,i)=>assign[pos]===-1||assign[pos]===pattern[i])) continue;
-      for(let i=0;i<positions.length;i++) masks[i]|=1<<pattern[i];
+  for(const line of lines){
+    const {positions,patterns,fullMask}=line;
+    let knownMask=0, valueMask=0;
+    for(let i=0;i<positions.length;i++){
+      const value=assign[positions[i]];
+      if(value===-1) continue;
+      knownMask|=1<<i;
+      valueMask|=value<<i;
+    }
+    // This key includes every assigned symbol, so reuse is safe across branches.
+    if(line.knownMask!==knownMask||line.valueMask!==valueMask){
+      let zeros=0, ones=0;
+      for(const pattern of patterns){
+        if((pattern&knownMask)!==valueMask) continue;
+        zeros|=fullMask^pattern;
+        ones|=pattern;
+      }
+      line.knownMask=knownMask;
+      line.valueMask=valueMask;
+      line.zeros=zeros;
+      line.ones=ones;
     }
     for(let i=0;i<positions.length;i++){
-      supported[positions[i]]&=masks[i];
+      const mask=((line.zeros>>i)&1)|(((line.ones>>i)&1)<<1);
+      supported[positions[i]]&=mask;
       if(supported[positions[i]]===0) return null;
     }
   }
   return supported;
 }
 
-function solveWithPropagation(assign, stats, lines){
+function solveWithPropagation(assign, stats, lines, rules=createRules(assign)){
   let next;
   // Repeatedly fill cells with only one legal value before making a guess.
   while(true){
@@ -369,11 +428,11 @@ function solveWithPropagation(assign, stats, lines){
     if(supported===null) return null;
     for(let pos=0;pos<assign.length;pos++){
       if(assign[pos]!==-1) continue;
-      const values=candidates(assign,pos,stats,supported[pos]);
+      const values=candidates(assign,pos,stats,supported[pos],rules);
       if(values.length===0) return null;
       if(values.length===1){
         stats.forcedPlacements++;
-        assign[pos]=values[0];
+        setValue(assign,pos,values[0],rules);
         changed=true;
       } else if(next===null||values.length<next.values.length){
         next={pos,values};
@@ -386,8 +445,9 @@ function solveWithPropagation(assign, stats, lines){
   for(const value of next.values){
     stats.guesses++;
     const branch=assign.slice();
-    branch[next.pos]=value;
-    const result=solveWithPropagation(branch,stats,lines);
+    const branchRules={...rules,rowCounts:rules.rowCounts.slice(),colCounts:rules.colCounts.slice()};
+    setValue(branch,next.pos,value,branchRules);
+    const result=solveWithPropagation(branch,stats,lines,branchRules);
     if(result) return result;
     stats.backtracks++;
   }
@@ -399,12 +459,13 @@ function solvePuzzle(strategy){
   const assign=cellClues.slice();
   // Validate supplied clues too, including already-complete boards.
   if(ROWS%2!==0||COLS%2!==0) return {solution:null,...stats};
+  const rules=createRules(assign);
   for(let pos=0;pos<assign.length;pos++){
-    if(assign[pos]!==-1&&!valid(assign,pos,assign[pos])) return {solution:null,...stats};
+    if(assign[pos]!==-1&&!valid(assign,pos,assign[pos],rules)) return {solution:null,...stats};
   }
   const solved=strategy==='propagation'
-    ? solveWithPropagation(assign,stats,puzzleLines())
-    : solveRec(assign,stats);
+    ? solveWithPropagation(assign,stats,puzzleLines(),rules)
+    : solveRec(assign,stats,0,rules);
   return {solution:solved,...stats};
 }
 

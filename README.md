@@ -54,6 +54,11 @@ Build clues. The history resets when you switch to **Build** or refresh the page
 even to allow equal numbers of suns and moons in every row and column.
 
 Run the automated checks with `node --test *.test.cjs` (Node.js 18 or later).
+Run `node benchmark.cjs` for repeated solve timings on five synthetic puzzles.
+To compare with a saved version, run `node benchmark.cjs /path/to/old/index.html`;
+the comparison also checks that solutions and all report counters match.
+The benchmark includes rule preparation and excludes drawing and animation.
+It measures warmed Node.js performance; browser timings can differ.
 
 ## How I built the tool
 
